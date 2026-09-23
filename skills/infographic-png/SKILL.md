@@ -1,18 +1,18 @@
 ---
 name: infographic-png
-description: 1枚もののインフォグラフィック・図解PNGをHTML+CSSで自作し、headless ChromeでPNG化して添付・投稿するワークフロー。日次/週次サマリの図解、レポート添付図、記事・仕組みの解説図に使う。標準モード(1280x720)と、Discord等の縮小表示でも読める高密度レポートモード(1280x1100-1800、2倍解像度)をサポート。外部画像・CDN・Webフォントを参照できないネットワーク制限環境でも動作する。
+description: 1枚もののインフォグラフィック・図解PNGをHTML+CSSで自作し、headless ChromeでPNG化するワークフロー。レポート添付図や記事・仕組みの解説図に使う。標準モード(1280x720)と、情報量の多い図解向けの高密度モード(1280x1100-1800、2倍解像度)をサポート。外部画像・CDN・Webフォントを参照できないネットワーク制限環境でも動作する。
 ---
 
 # インフォグラフィックPNG作成（HTML+CSS → headless Chrome → PNG）
 
-「レポートに添える1枚図解」の標準手順。デザインはネイビー図解スタイル（末尾パレットをそのまま使う）。
+「レポートに添える1枚図解」を、外部リソース参照なしのHTML+CSSで作り、headless ChromeでPNGに変換する手順。
 
 ## 2つのサイズモード
 
 | モード | CSS | Chrome引数 | 用途 |
 |---|---|---|---|
 | 標準 | `width:1280px;height:720px` | `--window-size=1280,720` | 16:9のシンプルな図解 |
-| 高密度レポート | `width:1280px;height:<H>px`（Hは1100〜1800で内容量に合わせる） | `--window-size=1280,<H> --force-device-scale-factor=2` | 週次コラム等の情報量の多い図解。Discord等で縮小表示されても文字が潰れないよう2倍解像度で出力する（PNG幅2560px） |
+| 高密度 | `width:1280px;height:<H>px`（Hは1100〜1800で内容量に合わせる） | `--window-size=1280,<H> --force-device-scale-factor=2` | 情報量の多い図解。縮小表示されても文字が潰れないよう2倍解像度で出力する（PNG幅2560px） |
 
 どちらのモードでも `html,body{margin:0} body{...;overflow:hidden}` を明示し、`<H>` は `--window-size` と必ず同じ値にする。
 
@@ -30,7 +30,7 @@ description: 1枚もののインフォグラフィック・図解PNGをHTML+CSS�
 - フォントはOS標準のゴシック系を指定: `font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif`
 - 構造は「太字中央タイトル + タイトル下罫線 + 1行リード文 + 図解エリア」が基本形
 
-**高密度レポートモードの追加ルール:**
+**高密度モードの追加ルール:**
 - 構造は3層で階層化する:
   1. 上部に凡例（色分けの意味。例: 「共通概念 / AWS / Azure / リスク / 観測点」）
   2. 主図: テーマの仕組みをパケット/リクエストの流れとして描く
@@ -45,7 +45,6 @@ Windows:
 ```
 chrome.exe --headless=new --disable-gpu --hide-scrollbars [--force-device-scale-factor=2] --window-size=1280,<H> --screenshot=<出力PNGの絶対パス> "file:///<HTMLの絶対パス>"
 ```
-（Chromeのパス例: `C:\devin\chrome\chrome-win64\chrome.exe`、`C:\Program Files\Google\Chrome\Application\chrome.exe`）
 
 Linux/macOS:
 ```
@@ -68,23 +67,9 @@ google-chrome --headless=new --disable-gpu --hide-scrollbars [--force-device-sca
 
 高さ調整は「body height と --window-size をセットで変える」を繰り返すだけでよい。レイアウトは固定幅フローなので、高さを変えても中身は再配置されるだけ。
 
-### 5. 出力・添付
-- PNGはレポート/メッセージにファイル添付する
+### 5. 出力
+- PNGを添付物として使う
 - HTMLも残すと後で修正・流用しやすい
-
-## 配信: Discord webhookへ投稿する場合
-
-画像をDiscordに表示させるには直接アップロードが必須。**外部URLをembedsのimage.urlに指定してもDiscordが取得できず画像は表示されない**。
-
-- 投稿はPythonの `urllib` で行う（`curl -d` はシェル経由で日本語が文字化けする）。`User-Agent: Mozilla/5.0` を付与する
-- `scripts/discord_upload.py` にmultipart投稿の実装がある:
-  ```
-  python scripts/discord_upload.py <PNGパス> "<content>"   # 環境変数 DISCORD_WEBHOOK_URL が必要
-  ```
-- 手動実装する場合の要点: webhook URLに `?wait=true` を付け、multipart/form-dataでPOST。フィールド `payload_json` に `{"content": "<見出し>", "attachments": [{"id": 0, "filename": "<PNGファイル名>"}]}`（**embedsは付けない**）、フィールド `files[0]` にPNGバイナリを filename 指定で入れる
-- テキストは `json.dumps({"content": text}, ensure_ascii=False).encode("utf-8")` でUTF-8エンコード
-- 1メッセージ上限2000文字 → 長い場合は1800文字程度ずつ複数メッセージに分割して順次POST
-- URLは `<URL>` で囲むとリンクプレビューを抑制できる
 
 ## ネイビー図解パレット
 
@@ -111,4 +96,3 @@ google-chrome --headless=new --disable-gpu --hide-scrollbars [--force-device-sca
 - [ ] 生成後にPNGを自分で開き、はみ出し・重なり・文字化け・80px超の余白がないことを確認したか
 - [ ] bodyのheightと--window-sizeが一致しているか
 - [ ] 出典が明記されているか（解説図の場合）
-- [ ] Discord投稿時は画像をmultipart直接アップロードしているか（外部URL参照になっていないか）
