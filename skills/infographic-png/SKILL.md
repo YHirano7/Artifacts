@@ -5,7 +5,7 @@ description: 1枚もののインフォグラフィック・図解PNGをHTML+CSS�
 
 # インフォグラフィックPNG作成（HTML+CSS → headless Chrome → PNG）
 
-「レポートに添える1枚図解」を、外部リソース参照なしのHTML+CSSで作り、headless ChromeでPNGに変換する手順。
+「レポートに添える1枚図解」を、外部リソース参照なしのHTML+CSSで作り、headless ChromeでPNGに変換する手順。配色・コンポーネントは末尾の「配色パターン」「概念が多い図で使うコンポーネント」をそのまま使う。
 
 ## 2つのサイズモード
 
@@ -71,7 +71,11 @@ google-chrome --headless=new --disable-gpu --hide-scrollbars [--force-device-sca
 - PNGを添付物として使う
 - HTMLも残すと後で修正・流用しやすい
 
-## ネイビー図解パレット
+## 配色パターン
+
+配色は2系統から内容で選ぶ。**登場する概念の種類が少ない**図（流れ・因果）はネイビー系、**概念が多く色分けで区別したい**図（対応表・階層・分類）はパステル系が向く。どちらの系統でも外周背景→コンテナ→カード→文字の濃淡だけで階層を表現する。
+
+### A. ネイビー図解（少概念・流れ向き）
 
 ```css
 :root {
@@ -87,7 +91,34 @@ google-chrome --headless=new --disable-gpu --hide-scrollbars [--force-device-sca
   --bg:           #e8eaf2;  /* 外周の薄青グレー */
 }
 ```
-基本は「外周グレー + 白カード面」の2層構造。1枚に使う色はネイビー系+アクセント1色まで（高密度モードで色分け凡例を使う場合は凡例用の4〜5色まで許容）。
+基本は「外周グレー + 白カード面」の2層構造。1枚に使う色はネイビー系+アクセント1色まで。
+
+### B. パステル多概念（多分類・入れ子向き）
+
+外周は白〜ごく薄いグレー。概念ごとに「背景パステル＋同系統の濃色を枠・見出しに」対応させ、凡例の色見本と一致させる。色数は凡例に収まる4〜7色まで。
+
+```css
+:root {
+  --bg:      #ffffff;     /* 外周は白でも可 */
+  --gold-bg: #f6d77a;  --gold-ink: #6b4f00;  --gold-line: #d9b23e;
+  --blue-bg: #dfe7fb;  --blue-ink: #123a8f;  --blue-line: #9db3ea;
+  --green-bg:#e6f4ec;  --green-ink:#1e6b3c;  --green-line:#4c9a6a;
+  --purple-bg:#efe6fb; --purple-ink:#5b2e9c; --purple-line:#a882d8;
+  --gray-bg: #f4f5f8;  --gray-ink: #444444;  --gray-line: #caccd8;
+  --ink-body:#212121;  --paper:#ffffff;
+}
+```
+
+## 概念が多い図で使うコンポーネント
+
+- **入れ子コンテナ**: 外側ほど薄く・角丸大きく。層の左肩に層名（太字）＋右に説明文1行。親の色に子を乗せて包含関係を表す
+- **凡例**: 上部に1行。`<span class="sw">` 12〜13px角の色見本＋概念名。図内の色は必ず凡例色と一致させる
+- **チップ**: 概念の列挙に使う角丸ピル（`border-radius:14px`、白背景＋薄い枠線、文字12px程度）。①②③の丸数字を頭に付けて対応番号にできる
+- **点線バッジ**: 1行の補足・継ぎ目・例外を、該当色の `1.5px dashed` 枠＋薄背景の帯として本文中に差し込む
+- **ミニカードグリッド**: 5〜7列の `grid-template-columns:repeat(7,1fr)` 等。カードは白背景＋左3pxの色帯（`border-left`）で所属概念を示す。タイトル13px・本文11〜12px
+- **外枠ラベル**: 全体を囲む枠（`position:relative`）に、枠線に重ねる白地のラベル（`position:absolute;top:-11px`）で集合名を名付ける
+- **3分割の定義帯**: 末尾に似た語の比較・定義を `repeat(3,1fr)` のカードで横並びにする
+- **脚注**: 包含関係や出典の留保は最下部に11〜12pxの薄文字で `※` 始まり
 
 ## 品質チェック
 
@@ -95,4 +126,5 @@ google-chrome --headless=new --disable-gpu --hide-scrollbars [--force-device-sca
 - [ ] 外部リソース参照がゼロか（img src / CDN / webfont / @import）
 - [ ] 生成後にPNGを自分で開き、はみ出し・重なり・文字化け・80px超の余白がないことを確認したか
 - [ ] bodyのheightと--window-sizeが一致しているか
+- [ ] 図内の色が凡例の色と一致しているか（色分けを使う場合）
 - [ ] 出典が明記されているか（解説図の場合）
