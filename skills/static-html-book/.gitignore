@@ -1,3 +1,4 @@
 template/site/
+template/single/
 __pycache__/
 *.pyc
