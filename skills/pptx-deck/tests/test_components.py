@@ -1,0 +1,213 @@
+import copy
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from pptx import Presentation
+from pptx.oxml.xmlchemy import OxmlElement
+from pptx.oxml.ns import qn
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS = ROOT / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+from build import validate_deck
+from common import BuildError
+from components import (LIBRARY, _write_color, fit_siblings, fit_size,
+                        resolve_canvas, resolve_component, resolve_style,
+                        validate_component)
+from inventory import collect
+from make_sample_template import build_minimal_template
+from qa import _check_text_only_slides
+
+GALLERY = ROOT / "examples" / "component-gallery" / "deck.json"
+MINIMAL_MAP = ROOT / "templates" / "minimal-org" / "template-map.json"
+
+
+class TestComponents(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.template = Path(cls.tmp.name) / "minimal.pptx"
+        build_minimal_template().save(cls.template)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_gallery_builds_every_variant_and_passes_qa(self):
+        output = Path(self.tmp.name) / "gallery.pptx"
+        build_report = Path(str(output) + ".build-report.json")
+        qa_report = Path(self.tmp.name) / "qa.json"
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        build = subprocess.run(
+            [sys.executable, str(SCRIPTS / "build.py"),
+             "--deck", str(GALLERY), "--map", str(MINIMAL_MAP),
+             "--template", str(self.template), "-o", str(output), "--strict"],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(build.returncode, 0, build.stderr + build.stdout)
+        prs = Presentation(str(output))
+        connectors = [shape for slide in prs.slides for shape in slide.shapes
+                      if shape.name.startswith("Cycle connector")]
+        self.assertEqual(len(connectors), 4)
+        for connector in connectors:
+            ln = connector._element.spPr.find(qn("a:ln"))
+            arrow = ln.find(qn("a:headEnd"))
+            self.assertEqual(arrow.get("type"), "triangle")
+            self.assertEqual(arrow.get("w"), "med")
+        report = json.loads(build_report.read_text(encoding="utf-8"))
+        variants = {(item["component"], item["variant"])
+                    for item in report["library"]}
+        self.assertEqual(
+            variants,
+            {(name, variant) for name, component in LIBRARY.items()
+             for variant in component.variants})
+        qa = subprocess.run(
+            [sys.executable, str(SCRIPTS / "qa.py"), str(output),
+             "--deck", str(GALLERY), "--map", str(MINIMAL_MAP),
+             "--build-report", str(build_report), "--report", str(qa_report)],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(qa.returncode, 0, qa.stderr + qa.stdout)
+        result = json.loads(qa_report.read_text(encoding="utf-8"))
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(len(result["library"]), len(variants))
+        self.assertIn("スキルの部品で描いた箇所", qa.stdout)
+
+    def test_theme_style_serialization_and_automatic_contrast(self):
+        prs = Presentation(str(self.template))
+        style = resolve_style(prs, {})
+        self.assertEqual(style.colors["primary"].scheme, "accent1")
+        self.assertEqual(style.colors["on_primary"].scheme, "lt1")
+        self.assertEqual(style.fonts["heading_ea"], "Yu Gothic")
+        self.assertEqual(style.fonts["body_latin"], "Yu Gothic")
+
+        themed = OxmlElement("p:spPr")
+        _write_color(themed, style.colors["primary"])
+        scheme = themed.find(f"{qn('a:solidFill')}/{qn('a:schemeClr')}")
+        self.assertIsNotNone(scheme)
+        self.assertEqual(scheme.get("val"), "accent1")
+
+        explicit = resolve_style(
+            prs, {"style": {"palette": {"primary": "#123456"}}})
+        shape = OxmlElement("p:spPr")
+        _write_color(shape, explicit.colors["primary"])
+        color = shape.find(f"{qn('a:solidFill')}/{qn('a:srgbClr')}")
+        self.assertIsNotNone(color)
+        self.assertEqual(color.get("val"), "123456")
+
+    def test_fit_and_sibling_size_consistency(self):
+        short = "Short label"
+        long = "This longer label needs a smaller font size to fit"
+        short_size = fit_size(short, 2.0, 0.7, 18, 9, "short")
+        long_size = fit_size(long, 2.0, 0.7, 18, 9, "long")
+        self.assertLess(long_size, short_size)
+        self.assertEqual(
+            fit_siblings([short, long], 2.0, 0.7, 18, 9, "cards"), long_size)
+        with self.assertRaisesRegex(BuildError, "shorten to about"):
+            fit_size("x" * 120, 1.0, 0.25, 12, 9,
+                     "slide 3 (component 'cards'), items[2].body")
+
+    def test_variants_limits_emphasis_and_roadmap_ranges(self):
+        with self.assertRaisesRegex(BuildError, "unknown variant"):
+            validate_component("cards", {"items": []}, "unknown", 2)
+        with self.assertRaisesRegex(BuildError, "split the content across slides"):
+            validate_component(
+                "cards",
+                {"items": [{"heading": "h", "body": "b"}] * 7},
+                "outline", 2)
+        with self.assertRaisesRegex(BuildError, "emphasis"):
+            validate_component(
+                "cards",
+                {"items": [{"heading": "h", "body": "b"}] * 2,
+                 "emphasis": 3},
+                "outline", 2)
+        with self.assertRaisesRegex(BuildError, "within 1..2"):
+            validate_component(
+                "roadmap",
+                {"periods": ["Oct", "Nov"],
+                 "tracks": [{"label": "Work",
+                             "bars": [{"start": 1, "end": 3,
+                                       "label": "Milestone"}]}]},
+                "roadmap", 2)
+
+    def test_template_resolution_canvas_and_template_variant_rejection(self):
+        tmap = json.loads(MINIMAL_MAP.read_text(encoding="utf-8"))
+        self.assertEqual(resolve_component("title", tmap)[0], "template")
+        self.assertEqual(resolve_component("cards", tmap)[0], "library")
+        custom = copy.deepcopy(tmap)
+        custom["components"]["cards"] = custom["components"]["bullets"]
+        self.assertEqual(resolve_component("cards", custom)[0], "template")
+
+        prs = Presentation(str(self.template))
+        layout, title_idx, region = resolve_canvas(prs, tmap, 1)
+        self.assertEqual(layout.name, "Title Only")
+        self.assertIsNotNone(title_idx)
+        self.assertAlmostEqual(region[2], 12.33, places=2)
+        self.assertGreater(region[3], 0)
+        with self.assertRaisesRegex(BuildError, "map に canvas.layout を指定"):
+            resolve_canvas(prs, {"canvas": {"layout": "Missing"}}, 1)
+
+        deck = json.loads(GALLERY.read_text(encoding="utf-8"))
+        deck["slides"][0]["variant"] = "header"
+        with self.assertRaisesRegex(BuildError, "does not support variant"):
+            validate_deck(deck, tmap)
+
+    def test_inventory_theme_explicit_colors_and_canvas_candidates(self):
+        data = collect(self.template)
+        self.assertEqual(data["theme"]["colors"]["accent1"], "#0F5B4F")
+        self.assertEqual(data["theme"]["colors"]["accent2"], "#E07A1F")
+        self.assertEqual(data["theme"]["fonts"]["major"]["ea"], "Yu Gothic")
+        self.assertTrue(data["used_colors"])
+        self.assertIn("Title Only", data["canvas_candidates"])
+        self.assertLessEqual(len(data["used_colors"]), 8)
+
+    def test_minimal_template_cli_generates_three_sample_slides(self):
+        output = Path(self.tmp.name) / "minimal-cli.pptx"
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        result = subprocess.run(
+            [sys.executable, str(SCRIPTS / "make_sample_template.py"),
+             "--variant", "minimal", "-o", str(output)],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        prs = Presentation(str(output))
+        self.assertEqual(len(prs.slides), 3)
+        self.assertEqual(
+            [slide.slide_layout.name for slide in prs.slides],
+            ["Title Slide", "Title and Content", "Title and Content"])
+        self.assertIn("Section Header", [layout.name
+                                         for layout in prs.slide_layouts])
+        self.assertIn("Title Only", [layout.name
+                                     for layout in prs.slide_layouts])
+
+    def test_text_only_warning_threshold(self):
+        tmap = {"components": {
+            "bullets": {
+                "kind": "content",
+                "slots": {"title": {"type": "text"},
+                          "body": {"type": "list"}}
+            },
+            "chart": {
+                "kind": "content",
+                "slots": {"chart": {"type": "chart"}}
+            }
+        }}
+        deck = {"slides": [
+            {"component": "bullets"} for _ in range(3)
+        ] + [{"component": "chart"}]}
+        warnings = []
+        _check_text_only_slides(
+            deck, tmap,
+            lambda slide, shape, message:
+            warnings.append((slide, shape, message)))
+        self.assertEqual([warning[0] for warning in warnings], [1, 2, 3])
+        self.assertIn("cards/process/kpi/comparison", warnings[0][2])
+
+
+if __name__ == "__main__":
+    unittest.main()

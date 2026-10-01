@@ -344,16 +344,8 @@ def build_template():
                  w=Inches(11.5), h=Inches(1.5))
     _layout_ph_style(section_layout, 0, sz=3200)
 
-    # widen title/body placeholders on content layouts; top-anchor the
-    # title with the same box as the sample-slide titles so one-line
-    # titles align everywhere
-    for lname in ("Title and Content", "Two Content", "Title Only"):
-        lay = find_layout(prs, lname)
-        _set_ph_geom(lay, 0, x=Inches(0.5), y=Inches(0.3),
-                     w=Inches(12.33), h=Inches(1.15))
-        _set_ph_anchor(lay, 0, "t")
-    content = find_layout(prs, "Title and Content")
-    _set_ph_geom(content, 1, x=Inches(0.5), w=Inches(12.33))
+    _widen_content_layouts(
+        prs, ("Title and Content", "Two Content", "Title Only"))
 
     blank = find_layout(prs, "Blank")
 
@@ -534,15 +526,111 @@ def build_template():
     return prs
 
 
+def edit_minimal_theme(prs):
+    theme_part = next(
+        (rel.target_part for rel in prs.slide_masters[0].part.rels.values()
+         if rel.reltype.endswith("/theme")), None)
+    if theme_part is None:
+        raise RuntimeError("theme part not found")
+    root = etree.fromstring(theme_part.blob)
+    ns = {"a": A}
+    colors = {
+        "dk1": "202124", "lt1": "FFFFFF", "dk2": "0F5B4F",
+        "lt2": "EEF4F2", "accent1": "0F5B4F", "accent2": "E07A1F",
+        "accent3": "6C817B", "accent4": "9DAEA9", "accent5": "CAD4D1",
+        "accent6": "718782", "hlink": "E07A1F", "folHlink": "8F5522",
+    }
+    for name, value in colors.items():
+        slot = root.find(f".//a:clrScheme/a:{name}", ns)
+        for child in list(slot):
+            slot.remove(child)
+        color = etree.SubElement(slot, qn("a:srgbClr"))
+        color.set("val", value)
+    for tag in ("a:majorFont", "a:minorFont"):
+        group = root.find(f".//a:fontScheme/{tag}", ns)
+        for name in ("latin", "ea"):
+            font = group.find(f"a:{name}", ns)
+            if font is None:
+                font = etree.SubElement(group, qn(f"a:{name}"))
+            font.set("typeface", FONT)
+    if hasattr(theme_part, "element"):
+        theme_part._element = root
+    else:
+        theme_part._blob = etree.tostring(
+            root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def build_minimal_template():
+    prs = Presentation()
+    prs.slide_width = Emu(12192000)
+    prs.slide_height = Emu(6858000)
+    edit_minimal_theme(prs)
+    _widen_content_layouts(prs, ("Title and Content", "Title Only"))
+    title_slide = prs.slides.add_slide(find_layout(prs, "Title Slide"))
+    title_slide.placeholders[0].text = "社内問い合わせ窓口の一本化"
+    title_slide.placeholders[1].text = "Sample Org"
+
+    content_layout = find_layout(prs, "Title and Content")
+    table_slide = prs.slides.add_slide(content_layout)
+    table_slide.placeholders[0].text = "サンプル表"
+    table_shape = table_slide.shapes.add_table(
+        4, 3, Inches(0.9), Inches(1.7), Inches(11.5), Inches(3.2))
+    table_shape.name = "DataTable"
+    for row, values in enumerate((
+            ("項目", "現状", "目標"),
+            ("受付", "複数窓口", "一本化"),
+            ("回答", "担当者ごと", "共通FAQ"),
+            ("記録", "分散", "一元管理"))):
+        for col, value in enumerate(values):
+            cell = table_shape.table.cell(row, col)
+            cell.text = value
+            cell.margin_left = Inches(0.12)
+            cell.margin_right = Inches(0.12)
+            cell.margin_top = Inches(0.04)
+            cell.margin_bottom = Inches(0.04)
+
+    org_slide = prs.slides.add_slide(content_layout)
+    org_slide.placeholders[0].text = "サンプル体制図"
+    mark_region(org_slide, "OrgRegion", Inches(0.9), Inches(1.7),
+                Inches(11.5), Inches(4.8))
+    node = org_slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(5.3), Inches(2.4),
+        Inches(2.6), Inches(1.0))
+    node.name = "OrgNode"
+    node.fill.solid()
+    node.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    node.line.color.rgb = RGBColor(0x0F, 0x5B, 0x4F)
+    node.text_frame.text = "責任者\n氏名"
+    for paragraph in node.text_frame.paragraphs:
+        paragraph.alignment = PP_ALIGN.CENTER
+        for run in paragraph.runs:
+            set_run_fonts(run, size=14, color=RGBColor(0x20, 0x21, 0x24))
+    return prs
+
+
+def _widen_content_layouts(prs, names):
+    for lname in names:
+        layout = find_layout(prs, lname)
+        _set_ph_geom(layout, 0, x=Inches(0.5), y=Inches(0.3),
+                     w=Inches(12.33), h=Inches(1.15))
+        _set_ph_anchor(layout, 0, "t")
+    if "Title and Content" in names:
+        content = find_layout(prs, "Title and Content")
+        _set_ph_geom(content, 1, x=Inches(0.5), w=Inches(12.33))
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--variant", choices=("sample", "minimal"),
+                    default="sample")
     ap.add_argument("-o", "--output",
                     default=str(Path(__file__).resolve().parents[1]
                                 / "templates" / "sample-org" / "template.pptx"))
     args = ap.parse_args()
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    prs = build_template()
+    prs = (build_minimal_template() if args.variant == "minimal"
+           else build_template())
     prs.save(str(out))
     print(f"wrote {out}")
 

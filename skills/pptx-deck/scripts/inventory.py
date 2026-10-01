@@ -5,16 +5,16 @@ shapes, tables, speaker notes. Optionally render slide thumbnails.
 Usage: inventory.py TEMPLATE.pptx [--json OUT] [--thumbs DIR]
 """
 import argparse
+from collections import Counter
 import json
-import os
-import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
+from lxml import etree
 from pptx import Presentation
 from pptx.oxml.ns import qn
+
+from engine import render_pngs
 
 EMU_PER_IN = 914400
 
@@ -26,50 +26,6 @@ def _in(v):
 def bbox(shape):
     return [_in(shape.left), _in(shape.top), _in(shape.width),
             _in(shape.height)]
-
-
-def find_soffice():
-    env = os.environ.get("SOFFICE")
-    if env and Path(env).exists():
-        return env
-    on_path = shutil.which("soffice")
-    if on_path:
-        return on_path
-    win_default = r"C:\Program Files\LibreOffice\program\soffice.exe"
-    if Path(win_default).exists():
-        return win_default
-    raise FileNotFoundError(
-        "soffice not found. Set SOFFICE env var, put soffice on PATH, "
-        "or install LibreOffice.")
-
-
-def pptx_to_pngs(pptx_path, out_dir, width_px=960):
-    """Render pptx -> pdf (soffice) -> PNG per slide (pypdfium2)."""
-    import pypdfium2 as pdfium
-
-    pptx_path = Path(pptx_path)
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory() as td:
-        proc = subprocess.run(
-            [find_soffice(), "--headless", "--norestore",
-             "--convert-to", "pdf", "--outdir", td, str(pptx_path)],
-            capture_output=True, text=True, timeout=300)
-        pdf_path = Path(td) / (pptx_path.stem + ".pdf")
-        if proc.returncode != 0 or not pdf_path.exists():
-            raise RuntimeError(
-                f"soffice PDF conversion failed: {proc.stderr.strip() or proc.stdout.strip()}")
-        doc = pdfium.PdfDocument(str(pdf_path))
-        paths = []
-        for i in range(len(doc)):
-            page = doc[i]
-            scale = width_px / page.get_width()
-            img = page.render(scale=scale).to_pil()
-            p = out_dir / f"{pptx_path.stem}-{i + 1:02d}.png"
-            img.save(str(p))
-            paths.append(str(p))
-        doc.close()
-        return paths
 
 
 GRAPHIC_URIS = {
@@ -111,6 +67,66 @@ def _shape_info(shape):
     return info
 
 
+def _theme_data(prs):
+    master = prs.slide_masters[0]
+    theme_part = next(
+        (rel.target_part for rel in master.part.rels.values()
+         if rel.reltype.endswith("/theme")), None)
+    if theme_part is None:
+        return {"colors": {}, "fonts": {}}
+    root = etree.fromstring(theme_part.blob)
+    ns = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+    keys = ("dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3",
+            "accent4", "accent5", "accent6", "hlink", "folHlink")
+    color_scheme = root.find(".//a:themeElements/a:clrScheme", ns)
+    colors = {}
+    if color_scheme is not None:
+        for key in keys:
+            slot = color_scheme.find(f"a:{key}", ns)
+            if slot is not None and len(slot):
+                color = slot[0]
+                value = color.get("val") or color.get("lastClr")
+                if value:
+                    colors[key] = f"#{value.upper()}"
+    font_scheme = root.find(".//a:fontScheme", ns)
+    fonts = {}
+    if font_scheme is not None:
+        for name, tag in (("major", "majorFont"), ("minor", "minorFont")):
+            group = font_scheme.find(f"a:{tag}", ns)
+            fonts[name] = {
+                key: (group.find(f"a:{key}", ns).get("typeface", "")
+                      if group is not None and group.find(f"a:{key}", ns)
+                      is not None else "")
+                for key in ("latin", "ea")
+            }
+    return {"colors": colors, "fonts": fonts}
+
+
+def _profile(prs):
+    used = Counter()
+    parts = [slide.part for slide in prs.slides]
+    parts.extend(layout.part for layout in prs.slide_layouts)
+    for part in parts:
+        root = etree.fromstring(part.blob)
+        for color in root.iter(qn("a:srgbClr")):
+            value = color.get("val")
+            if value:
+                used[f"#{value.upper()}"] += 1
+    ignored = {"TITLE (1)", "CENTER_TITLE (3)", "DATE (16)",
+               "FOOTER (15)", "SLIDE_NUMBER (13)", "HEADER (14)"}
+    candidates = [
+        layout.name for layout in prs.slide_layouts
+        if all(str(ph.placeholder_format.type) in ignored
+               for ph in layout.placeholders)
+    ]
+    return {
+        "theme": _theme_data(prs),
+        "used_colors": [{"rgb": color, "count": count}
+                        for color, count in used.most_common(8)],
+        "canvas_candidates": candidates,
+    }
+
+
 def collect(template_path):
     prs = Presentation(str(template_path))
     data = {
@@ -138,12 +154,17 @@ def collect(template_path):
             if notes:
                 entry["notes"] = notes
         data["slides"].append(entry)
+    data.update(_profile(prs))
     return data
 
 
 def print_report(data):
     print(f"template : {data['file']}")
     print(f"size     : {data['slide_size'][0]} x {data['slide_size'][1]} in")
+    print(f"theme    : {data['theme']['colors']}")
+    print(f"fonts    : {data['theme']['fonts']}")
+    print(f"used RGB : {data['used_colors']}")
+    print(f"canvas   : {data['canvas_candidates']}")
     print("\n== slide layouts ==")
     for layout in data["layouts"]:
         print(f"[{layout['index']}] {layout['name']}")
@@ -179,6 +200,8 @@ def main(argv=None):
     ap.add_argument("template")
     ap.add_argument("--json", dest="json_out")
     ap.add_argument("--thumbs", dest="thumbs_dir")
+    ap.add_argument("--engine", default="auto",
+                    choices=("auto", "powerpoint", "libreoffice"))
     args = ap.parse_args(argv)
 
     data = collect(Path(args.template))
@@ -188,7 +211,7 @@ def main(argv=None):
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\nwrote {args.json_out}")
     if args.thumbs_dir:
-        paths = pptx_to_pngs(args.template, args.thumbs_dir)
+        paths = render_pngs(args.template, args.thumbs_dir, args.engine)
         print(f"\nwrote {len(paths)} thumbnails to {args.thumbs_dir}")
     return 0
 

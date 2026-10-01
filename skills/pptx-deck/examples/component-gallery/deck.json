@@ -1,0 +1,319 @@
+{
+  "story": {
+    "purpose": "問い合わせ窓口の改善案を共有する",
+    "audience": "業務部門と情報システム部門",
+    "desired_action": "窓口統合の進め方と担当者を合意する",
+    "key_message": "受付を一本化し、回答の品質と対応状況を見える化する"
+  },
+  "meta": {
+    "title": "問い合わせ窓口の一本化",
+    "date": "2026-10-01"
+  },
+  "slides": [
+    {
+      "component": "title",
+      "message": null,
+      "slots": {
+        "title": "社内問い合わせ窓口を一本化",
+        "subtitle": "コンポーネントギャラリー | Sample Org"
+      }
+    },
+    {
+      "component": "cards",
+      "variant": "header",
+      "message": "受付を一つにまとめる",
+      "slots": {
+        "lead": "窓口統合で変える三つのポイント",
+        "items": [
+          {"heading": "受付を集約", "body": "申請先を一つにして迷いを減らす"},
+          {"heading": "分類を共通化", "body": "カテゴリと優先度を統一する"},
+          {"heading": "回答を再利用", "body": "FAQを育て、重複対応を減らす"}
+        ],
+        "emphasis": 2
+      },
+      "notes": "窓口を一本化し、共通の分類と回答ナレッジで運用する。"
+    },
+    {
+      "component": "cards",
+      "variant": "outline",
+      "message": "受付から回答までを標準化する",
+      "slots": {
+        "items": [
+          {"heading": "受け付ける", "body": ["フォームで必要情報を収集", "受付通知を自動送信"]},
+          {"heading": "振り分ける", "body": ["共通カテゴリで分類", "担当チームへ割り当て"]},
+          {"heading": "回答する", "body": ["FAQを確認", "解決内容を記録"]}
+        ],
+        "takeaway": "問い合わせ状況と解決内容を一元管理する"
+      },
+      "notes": "標準化した受付情報をチーム間で共有する。"
+    },
+    {
+      "component": "cards",
+      "variant": "numbered",
+      "message": "段階的に定着させる",
+      "slots": {
+        "items": [
+          {"heading": "試行", "body": "対象部門を絞り、受付項目を検証"},
+          {"heading": "展開", "body": "FAQと担当範囲を整えて対象拡大"},
+          {"heading": "定着", "body": "実績を見て手順とナレッジを更新"}
+        ],
+        "emphasis": 3
+      },
+      "notes": "試行結果を反映してから全社へ展開する。"
+    },
+    {
+      "component": "kpi",
+      "variant": "tiles",
+      "message": "受付集約で対応状況を見える化",
+      "slots": {
+        "items": [
+          {"value": "1", "unit": "窓口", "label": "受付先"},
+          {"value": "3", "unit": "営業日", "label": "初回回答目標"},
+          {"value": "80", "unit": "%", "label": "FAQ自己解決目標", "note": "試行後に見直し"},
+          {"value": "100", "unit": "%", "label": "対応記録率"}
+        ]
+      },
+      "notes": "数値は初期目標の例であり、試行結果に基づいて見直す。"
+    },
+    {
+      "component": "kpi",
+      "variant": "band",
+      "message": "受付先と応答基準を統一する",
+      "slots": {
+        "items": [
+          {"value": "1", "unit": "窓口", "label": "受付"},
+          {"value": "3", "unit": "日", "label": "初回回答目標"},
+          {"value": "80", "unit": "%", "label": "FAQ活用目標"}
+        ],
+        "takeaway": "目標値は試行期間後に合意する"
+      },
+      "notes": "初期の運用目標をシンプルに示した例。"
+    },
+    {
+      "component": "process",
+      "variant": "chevron",
+      "message": "分類から解決記録までをつなぐ",
+      "slots": {
+        "steps": [
+          {"label": "受付", "detail": "内容と希望日を記録"},
+          {"label": "分類", "detail": "カテゴリと優先度を設定"},
+          {"label": "対応", "detail": "担当チームが回答"},
+          {"label": "記録", "detail": "解決内容をFAQへ反映"}
+        ],
+        "emphasis": 3
+      },
+      "notes": "受付から記録までの標準フローを示す。"
+    },
+    {
+      "component": "process",
+      "variant": "circles",
+      "message": "受付・対応・改善を循環させる",
+      "slots": {
+        "steps": [
+          {"label": "受付", "detail": "共通フォーム"},
+          {"label": "回答", "detail": "担当チーム"},
+          {"label": "蓄積", "detail": "FAQ更新"}
+        ]
+      },
+      "notes": "問い合わせをナレッジ改善へつなげる循環を示す。"
+    },
+    {
+      "component": "process",
+      "variant": "arrows",
+      "message": "分類・共有で対応",
+      "slots": {
+        "steps": [
+          {"label": "受け付ける", "detail": "必要情報を揃える"},
+          {"label": "振り分ける", "detail": "担当と期限を決める"},
+          {"label": "解決する", "detail": "結果をナレッジ化"}
+        ],
+        "takeaway": "進捗は共通の受付台帳で確認する"
+      },
+      "notes": "部門をまたぐ問い合わせの流れを示す。"
+    },
+    {
+      "component": "comparison",
+      "variant": "before_after",
+      "message": "窓口統合で受付漏れを防ぐ",
+      "slots": {
+        "left": {
+          "heading": "現状",
+          "items": ["連絡先が複数", "担当が見つけにくい", "履歴が個人に分散"]
+        },
+        "right": {
+          "heading": "統合後",
+          "items": ["受付先を一本化", "担当と期限を明確化", "履歴を共有"]
+        },
+        "emphasis": 2
+      },
+      "notes": "導入前後の運用差を比較する。"
+    },
+    {
+      "component": "comparison",
+      "variant": "versus",
+      "message": "一次回答と専門対応",
+      "slots": {
+        "left": {
+          "heading": "一次窓口",
+          "items": ["受付と分類", "FAQ案内", "進捗連絡"]
+        },
+        "right": {
+          "heading": "専門チーム",
+          "items": ["技術調査", "個別判断", "恒久対応"]
+        }
+      },
+      "notes": "一次窓口と専門チームの役割分担を示す。"
+    },
+    {
+      "component": "matrix",
+      "message": "緊急度で優先順位",
+      "slots": {
+        "x_axis": {"label": "緊急度", "low": "低", "high": "高"},
+        "y_axis": {"label": "影響度", "low": "小", "high": "大"},
+        "quadrants": [
+          {"title": "計画対応", "items": ["改善要望"]},
+          {"title": "即時確認", "items": ["業務停止", "広範囲の障害"]},
+          {"title": "定期確認", "items": ["軽微な質問"]},
+          {"title": "優先対応", "items": ["複数部門へ影響"]}
+        ],
+        "emphasis": 2
+      },
+      "notes": "分類基準は部門間で合意して運用する。"
+    },
+    {
+      "component": "pyramid",
+      "variant": "pyramid",
+      "message": "FAQから専門担当へ",
+      "slots": {
+        "levels": [
+          {"label": "専門対応", "detail": "個別調査"},
+          {"label": "担当チーム", "detail": "手順に沿って解決"},
+          {"label": "FAQ", "detail": "よくある質問を自己解決"}
+        ]
+      },
+      "notes": "自己解決を土台に、専門性が必要な案件へ人員を集中する。"
+    },
+    {
+      "component": "pyramid",
+      "variant": "funnel",
+      "message": "必要情報から担当窓口へつなぐ",
+      "slots": {
+        "levels": [
+          {"label": "問い合わせ", "detail": "幅広く受け付ける"},
+          {"label": "分類", "detail": "カテゴリと緊急度を確認"},
+          {"label": "担当へ連携", "detail": "適切なチームへ割り当て"}
+        ]
+      },
+      "notes": "共通の受付情報を使って担当を判断する。"
+    },
+    {
+      "component": "cycle",
+      "message": "対応結果をFAQへ活用する",
+      "slots": {
+        "steps": [
+          {"label": "受け付ける"},
+          {"label": "分類する"},
+          {"label": "解決する"},
+          {"label": "FAQを更新"}
+        ],
+        "center": "継続改善"
+      },
+      "notes": "日々の対応とナレッジ更新をつなぐ。"
+    },
+    {
+      "component": "layers",
+      "message": "役割・手順・ツール",
+      "slots": {
+        "layers": [
+          {"label": "窓口", "items": ["受付フォーム", "共通メール"]},
+          {"label": "運用", "items": ["分類基準", "担当表"]},
+          {"label": "ナレッジ", "items": ["FAQ", "対応履歴"]}
+        ]
+      },
+      "notes": "複数の運用要素を一体として整備する。"
+    },
+    {
+      "component": "roadmap",
+      "message": "試行から全社展開",
+      "slots": {
+        "periods": ["10月", "11月", "12月", "1月"],
+        "tracks": [
+          {"label": "運用設計", "bars": [{"start": 1, "end": 2, "label": "手順策定"}]},
+          {"label": "FAQ整備", "bars": [{"start": 1, "end": 3, "label": "初版・更新"}]},
+          {"label": "試行・展開", "bars": [
+            {"start": 2, "end": 2, "label": "試行"},
+            {"start": 3, "end": 4, "label": "展開", "emphasis": true}
+          ]}
+        ],
+        "milestones": [{"at": 2, "label": "試行開始"}]
+      },
+      "notes": "小規模な試行で受付項目を確かめてから対象を広げる。"
+    },
+    {
+      "component": "message",
+      "variant": "banner",
+      "message": "誰でも同じ入口から相談できる",
+      "slots": {
+        "statement": "まず受付先を一本化する",
+        "supports": ["共通フォーム", "共通の分類基準", "担当と進捗の見える化"]
+      },
+      "notes": "提案の中心となるメッセージを強調する。"
+    },
+    {
+      "component": "message",
+      "variant": "quote",
+      "message": "対応履歴を組織の知識にする",
+      "slots": {
+        "statement": "一度の回答を、次の人の近道に。",
+        "supports": ["解決内容を記録", "FAQを継続更新"]
+      },
+      "notes": "ナレッジ共有の目指す状態を短く表現する。"
+    },
+    {
+      "component": "checklist",
+      "message": "試行前に役割を決める",
+      "slots": {
+        "items": [
+          {"text": "対象部門と問い合わせ範囲を決める", "status": "done"},
+          {"text": "受付フォームの項目を確定する", "status": "todo", "owner": "業務企画", "due": "10月中"},
+          {"text": "一次窓口の当番表を作成する", "status": "risk", "owner": "情シス", "due": "試行前"},
+          {"text": "FAQの更新責任者を決める", "status": "todo"}
+        ]
+      },
+      "notes": "準備状況と担当・期限を一覧で確認する。"
+    },
+    {
+      "component": "chart",
+      "variant": "side",
+      "message": "FAQの効果を検証する",
+      "slots": {
+        "chart": {
+          "type": "column",
+          "categories": ["10月", "11月", "12月"],
+          "series": [
+            {"name": "自己解決率", "values": [0.42, 0.58, 0.72]}
+          ],
+          "number_format": "0%"
+        },
+        "points": ["FAQ利用の推移を確認", "未解決の理由を分類", "月次で内容を更新"]
+      },
+      "notes": "数値は運用イメージを示す架空の例で、実績値ではない。"
+    },
+    {
+      "component": "chart",
+      "variant": "full",
+      "message": "受付・解決数を把握",
+      "slots": {
+        "chart": {
+          "type": "line",
+          "categories": ["10月", "11月", "12月", "1月"],
+          "series": [
+            {"name": "受付", "values": [120, 135, 150, 146]},
+            {"name": "解決", "values": [108, 122, 136, 158]}
+          ]
+        }
+      },
+      "notes": "問い合わせ件数は説明用の架空データ。受付と解決の差を継続確認する。"
+    }
+  ]
+}

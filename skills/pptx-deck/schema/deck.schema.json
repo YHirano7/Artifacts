@@ -34,6 +34,7 @@
         "additionalProperties": false,
         "properties": {
           "component": {"type": "string", "minLength": 1},
+          "variant": {"type": "string", "minLength": 1},
           "message": {"type": ["string", "null"]},
           "slots": {
             "type": "object",

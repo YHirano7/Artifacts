@@ -1,0 +1,59 @@
+{
+  "template": "template.pptx",
+  "placeholder_markers": ["サンプル"],
+  "components": {
+    "title": {
+      "kind": "structural",
+      "source": {"layout": "Title Slide"},
+      "slots": {
+        "title": {"type": "text", "target": 0, "required": true},
+        "subtitle": {"type": "text", "target": 1}
+      }
+    },
+    "divider": {
+      "kind": "structural",
+      "source": {"layout": "Section Header"},
+      "slots": {
+        "title": {"type": "text", "target": 0, "required": true}
+      }
+    },
+    "bullets": {
+      "kind": "content",
+      "source": {"layout": "Title and Content"},
+      "slots": {
+        "title": {"type": "text", "target": 0, "required": true},
+        "body": {"type": "list", "target": 1, "required": true}
+      }
+    },
+    "table": {
+      "kind": "content",
+      "source": {"sample_slide": 2},
+      "slots": {
+        "title": {"type": "text", "target": "Title", "required": true},
+        "table": {"type": "table", "target": "DataTable", "required": true}
+      }
+    },
+    "orgchart": {
+      "kind": "content",
+      "source": {"sample_slide": 3},
+      "slots": {
+        "title": {"type": "text", "target": "Title", "required": true},
+        "tree": {
+          "type": "orgchart",
+          "target": "OrgRegion",
+          "required": true,
+          "node_prototype": "OrgNode",
+          "connector_color": "accent1"
+        }
+      }
+    },
+    "closing": {
+      "kind": "structural",
+      "source": {"layout": "Title and Content"},
+      "slots": {
+        "title": {"type": "text", "target": 0, "required": true},
+        "body": {"type": "list", "target": 1, "required": true}
+      }
+    }
+  }
+}

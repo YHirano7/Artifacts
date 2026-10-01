@@ -12,6 +12,58 @@
       "minItems": 2,
       "maxItems": 2
     },
+    "canvas": {
+      "type": "object",
+      "properties": {
+        "layout": {"type": "string", "minLength": 1},
+        "title": {"type": "integer", "minimum": 0},
+        "region": {
+          "type": "array",
+          "items": {"type": "number"},
+          "minItems": 4,
+          "maxItems": 4
+        }
+      },
+      "additionalProperties": false
+    },
+    "style": {
+      "type": "object",
+      "properties": {
+        "palette": {
+          "type": "object",
+          "properties": {
+            "primary": {"$ref": "#/definitions/color"},
+            "highlight": {"$ref": "#/definitions/color"},
+            "text": {"$ref": "#/definitions/color"},
+            "muted": {"$ref": "#/definitions/color"},
+            "surface": {"$ref": "#/definitions/color"},
+            "line": {"$ref": "#/definitions/color"},
+            "background": {"$ref": "#/definitions/color"}
+          },
+          "additionalProperties": false
+        },
+        "fonts": {
+          "type": "object",
+          "properties": {
+            "latin": {"type": "string", "minLength": 1},
+            "ea": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": false
+        },
+        "sizes": {
+          "type": "object",
+          "properties": {
+            "heading": {"type": "integer", "minimum": 6, "maximum": 72},
+            "body": {"type": "integer", "minimum": 6, "maximum": 72},
+            "caption": {"type": "integer", "minimum": 6, "maximum": 72},
+            "number": {"type": "integer", "minimum": 6, "maximum": 72},
+            "min": {"type": "integer", "minimum": 6, "maximum": 72}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "placeholder_markers": {
       "type": "array",
       "items": {"type": "string", "minLength": 1}
@@ -23,6 +75,10 @@
     }
   },
   "definitions": {
+    "color": {
+      "type": "string",
+      "pattern": "^(#[0-9A-Fa-f]{6}|accent[1-6]|dk[12]|lt[12]|tx[12]|bg[12])$"
+    },
     "component": {
       "type": "object",
       "required": ["kind", "source", "slots"],
