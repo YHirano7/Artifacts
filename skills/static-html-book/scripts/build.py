@@ -337,15 +337,211 @@ def format_duration(minutes):
     return f"{h}時間{m}分" if h else f"{m}分"
 
 
+def meta_display(meta):
+    """表紙・フッターなど、全ページ共通の表示値を返す。改行は <br> にする。"""
+    book_title = meta["title"]
+    cover_title = meta.get("cover_title") or book_title
+    mini_cover_title = meta.get("mini_cover_title") or cover_title
+    footer_note = meta.get("footer_note") or ""
+    return {
+        "lang": esc(meta.get("lang", "ja")),
+        "book_title": esc(book_title),
+        "cover_title": esc_br(cover_title),
+        "mini_cover_title": esc_br(mini_cover_title),
+        "footer_note_html": (f'<p class="footer-note">{esc_br(footer_note)}</p>'
+                             if footer_note else ""),
+        "updated": esc(meta["updated"]),
+    }
+
+
+def render_chapter(src_dir, md, ch, ch_no):
+    """章 Markdown → (body HTML, toc HTML, 読了分数)。両フォーマットで共用。"""
+    r = ChapterRenderer(src_dir, md)
+    body = r.render_file(src_dir / "chapters" / ch["file"])
+    body = wrap_tables(body)
+    body, heads = assign_heading_ids(body, ch_no)
+    return body, build_toc(heads), r.reading_minutes()
+
+
+def chapter_page_values(disp, chapters, ch, idx, toc, body, minutes):
+    """chapter.html に渡す値一式。サイト版・単一ファイル版で同じページを作る。"""
+    ch_no = idx + 1
+    v = dict(disp)
+    v.update({
+        "chapter_title": esc(ch["title"]),
+        "chapter_summary": esc(ch["summary"]),
+        "chapter_no": str(ch_no),
+        "chapter_no_padded": f"{ch_no:02d}",
+        "reading_minutes": str(minutes),
+        "chapter_list": chapter_list_html(chapters, ch["slug"]),
+        "toc": toc,
+        "body": body,
+        "pager": pager_html(chapters, idx, disp["book_title"]),
+    })
+    return v
+
+
+def render_index(src_dir, md, tpl_index, meta, disp, chapters, total_minutes):
+    """index.html のレンダリング結果（全文）を返す。"""
+    desc_file = meta.get("description_file", "about.md")
+    r = ChapterRenderer(src_dir, md)
+    about_html = r.render_file(src_dir / desc_file)
+    plain = re.sub(r"\s+", " ", strip_tags(about_html)).strip()
+    return substitute(tpl_index, {
+        "lang": disp["lang"],
+        "book_title": disp["book_title"],
+        "cover_title": disp["cover_title"],
+        "footer_note_html": disp["footer_note_html"],
+        "book_subtitle": esc(meta["subtitle"]),
+        "book_description_plain": esc(plain[:120]),
+        "book_description": about_html,
+        "chapter_count": str(len(chapters)),
+        "total_hours": format_duration(total_minutes),
+        "updated": disp["updated"],
+        "first_chapter_href": f"chapters/{chapters[0]['slug']}.html",
+        "chapter_cards": chapter_cards_html(chapters),
+    }, "index.html")
+
+
+# ---- 単一ファイル（single）フォーマット ----
+
+ARTICLE_RE = re.compile(r'<article class="chapter-card">.*</article>', re.S)
+MAIN_INNER_RE = re.compile(r"<main\b[^>]*>(.*)</main>", re.S)
+LINK_ATTR = re.compile(r'(href|src)="([^"]*)"')
+HTML_PATH = re.compile(r"^(?:\.\./)?(?:chapters/)?([^/]+)\.html$")
+IMG_PATH = re.compile(r"^(?:\.\./)?(images/.+)$")
+ID_ATTR = re.compile(r'\bid="([^"]+)"')
+CSS_URL = re.compile(r"url\(\s*['\"]?([^)'\"]+)", re.I)
+
+
+def rewrite_refs(fragment, slugs, where):
+    """href/src を単一ファイル内の参照に書き換える。未対応の相対リンクはエラー。"""
+    def repl(m):
+        attr, ref = m.group(1), m.group(2)
+        if not ref or ref.startswith(("#", "http://", "https://", "mailto:", "tel:", "data:")):
+            return m.group(0)
+        path, _, frag = ref.partition("#")
+        mm = HTML_PATH.match(path)
+        if mm:
+            name = mm.group(1)
+            if name in slugs:
+                return f'{attr}="#{frag}"' if frag else f'{attr}="#ch-{name}"'
+            if name == "index":
+                return f'{attr}="#{frag}"' if frag else f'{attr}="#top"'
+        im = IMG_PATH.match(path)
+        if im:
+            return f'{attr}="{im.group(1)}"'
+        die(f'single format: unsupported relative link "{ref}" in {where}')
+    return LINK_ATTR.sub(repl, fragment)
+
+
+def chapter_list_single(chapters):
+    items = []
+    for i, ch in enumerate(chapters, 1):
+        items.append(
+            f'<li><a href="#ch-{ch["slug"]}">'
+            f'<span class="ch-no">{i}</span>'
+            f'<span class="ch-title">{esc(ch["title"])}</span></a></li>')
+    return "\n".join(items)
+
+
+def build_single(src_dir, out_dir, meta, disp, chapters, rendered, index_html):
+    """1つの index.html + images/ を出力する。"""
+    needed = [src_dir / "templates" / "single.html",
+              src_dir / "assets" / "book-single.css",
+              src_dir / "assets" / "book-single.js"]
+    missing = [str(p.relative_to(src_dir)) for p in needed if not p.is_file()]
+    if missing:
+        die("single format には src/ に次のファイルが必要です: "
+            + ", ".join(missing)
+            + "。スキルの template/src からコピーしてください。")
+
+    book_css = (src_dir / "assets" / "book.css").read_text(encoding="utf-8")
+    for m in CSS_URL.finditer(book_css):
+        if not re.match(r"(https?:|data:|#)", m.group(1), re.I):
+            die(f"book.css に相対パスの url() があるため単一ファイルにできません: {m.group(1)}")
+    inline_css = book_css + "\n" + (src_dir / "assets" / "book-single.css").read_text(encoding="utf-8")
+    inline_js = (src_dir / "assets" / "book-single.js").read_text(encoding="utf-8")
+    for name, text in (("book-single.css", inline_css), ("book-single.js", inline_js)):
+        if "</style" in text.lower() or "</script" in text.lower():
+            die(f"{name} に </script> または </style> が含まれるためインライン化できません")
+
+    slugs = {ch["slug"] for ch in chapters}
+    book_title = meta["title"]
+
+    # 表紙: index.html の <main> の中身
+    m = MAIN_INNER_RE.search(index_html)
+    if not m:
+        die("index.html テンプレートの出力に <main> が見つかりません（src/templates/index.html を確認）")
+    cover = rewrite_refs(m.group(1), slugs, "cover")
+
+    sections, toc_cards = [], []
+    for (ch, ch_no, _toc, page_html, _min) in rendered:
+        m = ARTICLE_RE.search(page_html)
+        if not m:
+            die("chapter テンプレートの出力に <article class=\"chapter-card\"> が見つかりません"
+                f"（src/templates/chapter.html を確認）: {ch['slug']}")
+        article = rewrite_refs(m.group(0), slugs, f"chapter {ch['slug']}")
+        pager = rewrite_refs(pager_html(chapters, ch_no - 1, book_title),
+                             slugs, f"pager of {ch['slug']}")
+        toc_card = (f'<div class="toc-card" data-chapter-toc="ch-{ch["slug"]}">'
+                    f'<p class="toc-heading">目次</p>{_toc}</div>')
+        sections.append(
+            f'<section class="single-chapter" id="ch-{ch["slug"]}" '
+            f'data-title="{html.escape(ch["title"] + " | " + book_title, quote=True)}" '
+            f'data-label="Chapter {ch_no:02d}">\n'
+            f'{article}\n'
+            f'<nav class="pager" aria-label="チャプター移動">\n{pager}\n</nav>\n'
+            f'</section>')
+        toc_cards.append(toc_card)
+
+    tpl_single = (src_dir / "templates" / "single.html").read_text(encoding="utf-8")
+    out = substitute(tpl_single, {
+        "lang": disp["lang"],
+        "book_title": disp["book_title"],
+        "book_description_plain": substitute_index_plain(index_html),
+        "mini_cover_title": disp["mini_cover_title"],
+        "footer_note_html": disp["footer_note_html"],
+        "updated": disp["updated"],
+        "chapter_list": rewrite_refs(chapter_list_single(chapters), slugs, "chapter_list"),
+        "cover": cover,
+        "chapters": "\n".join(sections),
+        "page_tocs": "\n".join(toc_cards),
+        "inline_css": inline_css,
+        "inline_js": inline_js,
+    }, "single.html")
+
+    ids = ID_ATTR.findall(out)
+    dup = sorted({i for i in ids if ids.count(i) > 1})
+    if dup:
+        die(f"single format: duplicated id(s) in output: {', '.join(dup)}")
+
+    out_dir.mkdir(parents=True)
+    (out_dir / "index.html").write_text(out, encoding="utf-8")
+    if (src_dir / "images").is_dir():
+        shutil.copytree(src_dir / "images", out_dir / "images")
+    print(f"built index.html (single: {len(chapters)} chapters)")
+
+
+def substitute_index_plain(index_html):
+    """レンダリング済み index.html から meta description 用のテキストを取り出す。"""
+    m = re.search(r'<meta name="description" content="([^"]*)">', index_html)
+    return m.group(1) if m else ""
+
+
 def main():
     ap = argparse.ArgumentParser(description="静的HTML本をビルドする")
     ap.add_argument("--book", default=".", help="本のディレクトリ（既定: カレント）")
     ap.add_argument("--src", default=None, help="既定: <book>/src")
-    ap.add_argument("--out", default=None, help="既定: <book>/site")
+    ap.add_argument("--out", default=None,
+                    help="既定: <book>/site（--format site）、<book>/single（--format single）")
+    ap.add_argument("--format", choices=["site", "single"], default="site",
+                    help="出力形式（既定: site）")
     args = ap.parse_args()
     book_dir = Path(args.book).resolve()
     src_dir = Path(args.src).resolve() if args.src else book_dir / "src"
-    out_dir = Path(args.out).resolve() if args.out else book_dir / "site"
+    out_dir = (Path(args.out).resolve() if args.out
+               else book_dir / ("site" if args.format == "site" else "single"))
 
     meta_path = src_dir / "book.json"
     if not meta_path.is_file():
@@ -353,75 +549,49 @@ def main():
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     chapters = meta["chapters"]
     book_title = meta["title"]
-
-    # 表紙・フッターの表示値。改行は <br> にする。
-    cover_title = meta.get("cover_title") or book_title
-    mini_cover_title = meta.get("mini_cover_title") or cover_title
-    footer_note = meta.get("footer_note") or ""
-    footer_note_html = f'<p class="footer-note">{esc_br(footer_note)}</p>' if footer_note else ""
+    disp = meta_display(meta)
 
     tpl_index = (src_dir / "templates" / "index.html").read_text(encoding="utf-8")
     tpl_chapter = (src_dir / "templates" / "chapter.html").read_text(encoding="utf-8")
 
     if out_dir.exists():
         shutil.rmtree(out_dir)
-    (out_dir / "chapters").mkdir(parents=True)
-    if (src_dir / "assets").is_dir():
-        shutil.copytree(src_dir / "assets", out_dir / "assets")
-    if (src_dir / "images").is_dir():
-        shutil.copytree(src_dir / "images", out_dir / "images")
-
     md = markdown.Markdown(extensions=["tables", "sane_lists", "attr_list"])
     total_minutes = 0
 
+    if args.format == "single":
+        rendered = []
+        for idx, ch in enumerate(chapters):
+            ch_no = idx + 1
+            body, toc, minutes = render_chapter(src_dir, md, ch, ch_no)
+            total_minutes += minutes
+            page_html = substitute(tpl_chapter,
+                                   chapter_page_values(disp, chapters, ch, idx, toc, body, minutes),
+                                   f"chapter {ch['slug']}")
+            rendered.append((ch, ch_no, toc, page_html, minutes))
+        index_html = render_index(src_dir, md, tpl_index, meta, disp, chapters, total_minutes)
+        build_single(src_dir, out_dir, meta, disp, chapters, rendered, index_html)
+        return
+
+    (out_dir / "chapters").mkdir(parents=True)
+    if (src_dir / "assets").is_dir():
+        # single 専用のアセットは埋め込み用なので、章ごとのサイトにはコピーしない
+        shutil.copytree(src_dir / "assets", out_dir / "assets",
+                        ignore=shutil.ignore_patterns("book-single.css", "book-single.js"))
+    if (src_dir / "images").is_dir():
+        shutil.copytree(src_dir / "images", out_dir / "images")
+
     for idx, ch in enumerate(chapters):
         ch_no = idx + 1
-        r = ChapterRenderer(src_dir, md)
-        body = r.render_file(src_dir / "chapters" / ch["file"])
-        body = wrap_tables(body)
-        body, heads = assign_heading_ids(body, ch_no)
-        toc = build_toc(heads)
-        minutes = r.reading_minutes()
+        body, toc, minutes = render_chapter(src_dir, md, ch, ch_no)
         total_minutes += minutes
-        html_out = substitute(tpl_chapter, {
-            "lang": esc(meta.get("lang", "ja")),
-            "book_title": esc(book_title),
-            "mini_cover_title": esc_br(mini_cover_title),
-            "footer_note_html": footer_note_html,
-            "chapter_title": esc(ch["title"]),
-            "chapter_summary": esc(ch["summary"]),
-            "chapter_no": str(ch_no),
-            "chapter_no_padded": f"{ch_no:02d}",
-            "reading_minutes": str(minutes),
-            "updated": esc(meta["updated"]),
-            "chapter_list": chapter_list_html(chapters, ch["slug"]),
-            "toc": toc,
-            "body": body,
-            "pager": pager_html(chapters, idx, book_title),
-        }, f"chapter {ch['slug']}")
+        html_out = substitute(tpl_chapter,
+                              chapter_page_values(disp, chapters, ch, idx, toc, body, minutes),
+                              f"chapter {ch['slug']}")
         (out_dir / "chapters" / f"{ch['slug']}.html").write_text(html_out, encoding="utf-8")
         print(f"built chapters/{ch['slug']}.html (約{minutes}分)")
 
-    # index
-    desc_file = meta.get("description_file", "about.md")
-    r = ChapterRenderer(src_dir, md)
-    about_html = r.render_file(src_dir / desc_file)
-    plain = re.sub(r"\s+", " ", strip_tags(about_html)).strip()
-    about_plain = esc(plain[:120])
-    index_html = substitute(tpl_index, {
-        "lang": esc(meta.get("lang", "ja")),
-        "book_title": esc(book_title),
-        "cover_title": esc_br(cover_title),
-        "footer_note_html": footer_note_html,
-        "book_subtitle": esc(meta["subtitle"]),
-        "book_description_plain": about_plain,
-        "book_description": about_html,
-        "chapter_count": str(len(chapters)),
-        "total_hours": format_duration(total_minutes),
-        "updated": esc(meta["updated"]),
-        "first_chapter_href": f"chapters/{chapters[0]['slug']}.html",
-        "chapter_cards": chapter_cards_html(chapters),
-    }, "index.html")
+    index_html = render_index(src_dir, md, tpl_index, meta, disp, chapters, total_minutes)
     (out_dir / "index.html").write_text(index_html, encoding="utf-8")
     print(f"built index.html ({len(chapters)} chapters, 約{format_duration(total_minutes)})")
 

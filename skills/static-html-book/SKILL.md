@@ -9,9 +9,11 @@ Markdown で書いた章を、Zenn の本に似た3列レイアウトの HTML �
 
 ## 仕上がりの要件
 
-- `site/index.html` を `file://` で開いても、HTTP で配信しても読める
+- 出力は2つの形式から選べる
+  - `site`：章ごとのHTML。`site/index.html` を `file://` で開いても、HTTP で配信しても読める
+  - `single`：1つの `index.html`（CSS・JavaScript 埋め込み）と `images/` だけ。フォルダ1つで配布できる。JavaScript が有効なら `file://` でも再読み込みなしで章を切り替えられ、無効なら全章が1ページに縦に並ぶ
 - JavaScript が無効でも、通常のリンクで全章を行き来できる。目次・確認問題の解答・モバイルのメニューは `details` と checkbox で開閉する
-- JavaScript が有効なら、ページを再読み込みせずに章を切り替える（HTTP 配信時のみ。`file://` では通常のリンク遷移に戻る）。目次の現在位置ハイライト、読書進捗、コードのコピー、←／→キーでの章移動も使える
+- JavaScript が有効なら、ページを再読み込みせずに章を切り替える（`site` は HTTP 配信時のみ、`file://` では通常のリンク遷移に戻る。`single` は `file://` でも使える）。目次の現在位置ハイライト、読書進捗、コードのコピー、←／→キーでの章移動も使える
 - 外部の CDN・画像・Web フォントは使わない。リンクはすべて相対パスにする
 - 公開リポジトリに置けるよう、個人情報・実在のアカウント ID・内輪の表現を含めない
 
@@ -74,11 +76,14 @@ PNG ができたら必ず自分で開き、はみ出し・重なり・文字化�
 
 ```bash
 python tools/build.py                 # src/ から site/ を生成する
+python tools/build.py --format single # src/ から single/（1HTML + images/）を生成する
 python tools/check.py --strict        # リンク切れ・画像・HTML構造・章の型を検査する
+python tools/check.py --strict --site single  # single 版も同じように検査できる
 python tools/public_check.py          # 公開前の検査
 ```
 
-- `build.py` は `site/` を作り直す。`site/` を HTTP サーバーで配信している間は、サーバーを止めてから実行する（Windows ではフォルダを削除できずに失敗する）
+- `build.py` は出力ディレクトリを作り直す。`site/` を HTTP サーバーで配信している間は、サーバーを止めてから実行する（Windows ではフォルダを削除できずに失敗する）
+- `single` 形式では、章や画像へのリンクは `#アンカー` と `images/` に書き換えられる。それ以外の相対リンク（`../samples/x.txt` など）はエラーになる
 - `public_check.py` は、許可していない12桁の数字（AWS アカウント ID など）、`example.com` 以外のメールアドレス、許可リストにない URL のドメイン、禁止語を検出する。設定は `references/book-format.md` の「公開前検査の設定」を参照
 - 禁止語（本人の名前、組織名、ユーザー名、ローカルのパスなど）は、リポジトリの外に置いたファイルで渡す。**禁止語のリストそのものを公開リポジトリにコミットしない**。分割した文字列や難読化した形でも、名前が復元できるならコミットしない
 
@@ -99,7 +104,7 @@ python tools/public_check.py --blocklist ~/.config/public-blocklist.txt
 
 ### 8. 公開する
 
-- `site/` はビルド済みのままコミットする。読者がビルドしなくても読めるようにするため
+- `site/`（または `single/`）はビルド済みのままコミットする。読者がビルドしなくても読めるようにするため。`single/` は `index.html` と `images/` だけなのでフォルダごと配布しやすい
 - `node_modules`、ビルドの中間生成物、ローカルの設定ファイルはコミットしない
 - コミットの前に `public_check.py` をもう一度実行する
 
@@ -114,12 +119,13 @@ python tools/public_check.py --blocklist ~/.config/public-blocklist.txt
 │   ├── about.md            トップページの紹介文
 │   ├── chapters/*.md       章の本文
 │   ├── images/*.png        図解（2560×1440）
-│   ├── templates/          index.html・chapter.html
-│   └── assets/             book.css・book.js
+│   ├── templates/          index.html・chapter.html・single.html
+│   └── assets/             book.css・book.js・book-single.css・book-single.js
 ├── infographics/           図解の元 HTML（1280×720）
 ├── samples/                サンプルコード（任意）
 ├── tools/                  scripts/ からコピーしたビルド・検査スクリプト
-└── site/                   ビルド結果（配布するのはここ）
+├── site/                   ビルド結果・章ごとのHTML版（配布するのはここ）
+└── single/                 ビルド結果・1つのHTML版（index.html + images/）
 ```
 
 ## 品質チェック
@@ -128,6 +134,6 @@ python tools/public_check.py --blocklist ~/.config/public-blocklist.txt
 - [ ] 仕様・料金・提供状況を公式ドキュメントの原文で確かめ、変わりやすい情報に確認時期を書いたか
 - [ ] 各章に「この章で分かること」「まとめ」、確認問題と折りたたんだ解答、図解が1枚以上あるか
 - [ ] 図解の PNG を全部自分で開いて確かめたか
-- [ ] `build.py`・`check.py --strict`・`public_check.py --blocklist ...` がすべて成功したか
-- [ ] ブラウザで、HTTP・`file://`・JavaScript 無効・375px 幅の4つを確かめたか
+- [ ] `build.py`・`check.py --strict`・`public_check.py --blocklist ...` がすべて成功したか（`single` を配布するなら `build.py --format single` と `check.py --strict --site single` も）
+- [ ] ブラウザで、HTTP・`file://`・JavaScript 無効・375px 幅の4つを確かめたか（`single` ならハッシュ遷移・戻る／進む・表紙表示も）
 - [ ] 禁止語のリストや個人情報が、コミットするファイルに含まれていないか

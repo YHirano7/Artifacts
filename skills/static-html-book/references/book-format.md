@@ -81,6 +81,29 @@ Resources: ...
 
 本文の見出しは `##`（h2）と `###`（h3）を使う。章の題名は `book.json` から h1 として出るので、本文に `#` は書かない。h2・h3 は自動で目次になる。
 
+## single 形式（1つのHTML + images/）
+
+`python tools/build.py --format single` で、章ごとのページの代わりに `<out>/index.html` 1枚（CSS・JavaScript 埋め込み）と `<out>/images/` を出力する。追加で必要なファイル（スキルの `template/src` に入っている）:
+
+- `src/templates/single.html`：単一ページの外枠。`{{cover}}`・`{{chapters}}`・`{{page_tocs}}`・`{{inline_css}}`・`{{inline_js}}` などのプレースホルダを使う
+- `src/assets/book-single.css`：`book.css` のあとに結合して埋め込む追加スタイル
+- `src/assets/book-single.js`：ハッシュ（`#ch-<slug>`、`#top`）で章・表紙を切り替えるスクリプト。fetch は使わないので `file://` でも動く
+
+`site` 版と同じテンプレート（index.html・chapter.html）から章・表紙の中身を抜き出して組み立てるため、両形式で見た目は揃う。
+
+### リンクの書き換えルール
+
+single 形式では、出力内の `href`・`src` を次のように書き換える。
+
+| 元の参照 | 変換後 |
+| --- | --- |
+| `chapters/<slug>.html`・`<slug>.html` | `#ch-<slug>`（`#見出し` つきなら `#見出し`） |
+| `../index.html`・`index.html` | `#top`（`#フラグメント` つきなら `#フラグメント`） |
+| `../images/x.png`・`images/x.png` | `images/x.png` |
+| `#…`、`http(s)://`、`mailto:`、`tel:`、`data:` | そのまま |
+
+それ以外の相対リンク（`../samples/x.txt` など）は `single format: unsupported relative link` でビルドが失敗する。`book.css` に相対パスの `url()` がある場合も失敗する（単一ファイルに埋め込めないため）。
+
 ## 公開前検査の設定
 
 ### public-check.json（本のディレクトリ直下、任意）
