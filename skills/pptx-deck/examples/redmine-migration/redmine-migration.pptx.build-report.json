@@ -1,4 +1,26 @@
 {
   "fallbacks": [],
-  "native": 29
+  "native": 18,
+  "library": [
+    {
+      "slide": 4,
+      "component": "cards",
+      "variant": "outline"
+    },
+    {
+      "slide": 5,
+      "component": "comparison",
+      "variant": "before_after"
+    },
+    {
+      "slide": 11,
+      "component": "roadmap",
+      "variant": "roadmap"
+    },
+    {
+      "slide": 14,
+      "component": "process",
+      "variant": "arrows"
+    }
+  ]
 }

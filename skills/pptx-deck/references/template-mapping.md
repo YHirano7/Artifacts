@@ -4,7 +4,7 @@
 
 ## 手順
 
-1. `python scripts/inventory.py TEMPLATE.pptx --json inv.json --thumbs thumbs/` で棚卸しする。レイアウト一覧（名前・プレースホルダの idx/型/位置）、各スライドの図形（名前・種類・位置・本文冒頭）、ノート欄が分かる。`--thumbs` のPNGは自分で見て、どのスライドが何の見本か確認する。
+1. `python scripts/inventory.py TEMPLATE.pptx --json inv.json --thumbs thumbs/ --engine auto` で棚卸しする。レイアウト一覧（名前・プレースホルダの idx/型/位置）、各スライドの図形（名前・種類・位置・本文冒頭）、ノート欄に加えて、テーマ色・フォント、明示RGB色、canvas候補が分かる。`--thumbs` のPNGは自分で見て、どのスライドが何の見本か確認する。
 2. 使いたい部品（表紙・目次・区切り・箇条書き・表・組織図・タイムライン等）ごとに、次のどちらかで作る方法を決める。
 
 ## source の2方式
@@ -13,6 +13,28 @@
 - `{"sample_slide": <テンプレ内の1始まりの番号>}` — そのスライドを丸ごと複製し、中身を差し替える。`target` は図形の**名前（文字列）**。名前が無い・重複している図形は狙えないので、テンプレ側で図形名を整理する（選択ウィンドウかpython-pptx）。
 
 見本スライドがテンプレに無ければ、テーマの色・フォント・既存図形を複製して1枚作ってよい。位置・サイズは build が region 図形のbboxを使うため、見本スライドの配置がそのまま品質になる。
+
+## ライブラリ部品のcanvasとstyle
+
+template-map.json にない component 名はスキルの図解ライブラリから解決する。テンプレmapに同名部品があれば常にmapが優先される。canvas/style は map 全体に対する任意設定で、ライブラリ部品に適用される。
+
+```json
+{
+  "canvas": {
+    "layout": "Title Only",
+    "region": [0.8, 1.7, 11.7, 5.0]
+  },
+  "style": {
+    "palette": {"primary": "#0F5B4F"},
+    "fonts": {"ea": "Yu Gothic"},
+    "sizes": {"heading": 20}
+  }
+}
+```
+
+`canvas` を省略すると、inventoryの候補から `Title Only`、次に `タイトルのみ` を選び、タイトルplaceholder下を描画域にする。位置や大きさを指定したい場合は、例のように `layout` と `region`（インチ単位の `[x, y, width, height]`）を設定する。canvasを指定しない場合も、既定の描画域は選択したテンプレートのスライドサイズとタイトル位置に合わせて決まる。
+
+paletteとfontを省略した場合は、テンプレートのテーマ色・フォントを使う。componentの色・サイズの既定値とslotは [components.md](components.md) を参照する。
 
 ## スロット型
 

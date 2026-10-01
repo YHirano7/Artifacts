@@ -14,12 +14,17 @@ from pathlib import Path
 import jsonschema
 from lxml import etree
 from pptx import Presentation
-from pptx.chart.data import CategoryChartData
-from pptx.enum.chart import XL_CHART_TYPE
 from pptx.enum.shapes import MSO_CONNECTOR
-from pptx.opc.package import PackURI, Part, XmlPart
+from pptx.opc.package import PackURI, XmlPart
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches
+
+from common import (CHART_TYPES, FALLBACK_MARK, GENERATED_MARK, BuildError,
+                    chart_data as _chart_data, fail,
+                    finish_chart as _finish_chart,
+                    mark_el as _mark_el)
+from components import (draw_component, resolve_canvas,
+                        resolve_component, validate_component)
 
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -28,14 +33,6 @@ DIAGRAM_URI = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
 SCHEMA_DIR = Path(__file__).resolve().parents[1] / "schema"
 MIN_NODE_W = Inches(1.1)
 
-CHART_TYPES = {
-    "column": XL_CHART_TYPE.COLUMN_CLUSTERED,
-    "bar": XL_CHART_TYPE.BAR_CLUSTERED,
-    "line": XL_CHART_TYPE.LINE,
-    "pie": XL_CHART_TYPE.PIE,
-    "stacked_column": XL_CHART_TYPE.COLUMN_STACKED,
-    "stacked_bar": XL_CHART_TYPE.BAR_STACKED,
-}
 # part prefixes that must be deep-copied per slide instead of shared
 CLONE_PREFIXES = ("/ppt/charts/", "/ppt/diagrams/", "/ppt/embeddings/")
 
@@ -43,14 +40,6 @@ SHAPE_TAGS = {
     qn("p:sp"), qn("p:grpSp"), qn("p:graphicFrame"), qn("p:pic"),
     qn("p:cxnSp"), qn("p:contentPart"),
 }
-
-
-class BuildError(Exception):
-    pass
-
-
-def fail(msg):
-    raise BuildError(msg)
 
 
 def load_json(path):
@@ -171,17 +160,24 @@ def validate_deck(deck, tmap):
     check_schema(tmap, "template-map.schema.json", "template-map.json")
     for i, spec in enumerate(deck["slides"], start=1):
         comp_name = spec["component"]
-        if comp_name not in tmap["components"]:
-            fail(f"slide {i}: component '{comp_name}' not in template map "
-                 f"(have: {sorted(tmap['components'])})")
-        comp = tmap["components"][comp_name]
-        if comp.get("kind") == "content":
+        source, comp = resolve_component(comp_name, tmap)
+        if source == "library":
+            validate_component(
+                comp_name, {k: v for k, v in spec.get("slots", {}).items()
+                            if k != "title"},
+                spec.get("variant"), i)
+        else:
+            if "variant" in spec:
+                fail(f"slide {i}: template component '{comp_name}' "
+                     "does not support variant")
+            effective_slots(spec, comp, i)
+        is_content = source == "library" or comp.get("kind") == "content"
+        if is_content:
             if not spec.get("message"):
                 fail(f"slide {i}: content slide requires a non-empty "
                      f"'message' (it is the slide's action title)")
             if not spec.get("notes"):
                 fail(f"slide {i}: content slide requires speaker 'notes'")
-        effective_slots(spec, comp, i)
 
 
 # ---------- shape tree / geometry helpers ----------
@@ -774,21 +770,6 @@ def synth_node_proto(kind):
     return etree.fromstring(xml)
 
 
-# shapes drawn by the builder carry a descr marker so qa can check
-# whether a redrawn fallback or a generated node collides with
-# content that was kept from the sample slide
-FALLBACK_MARK = "pptx-deck-fallback"
-GENERATED_MARK = "pptx-deck-generated"
-
-
-def _mark_el(el, mark):
-    """Set descr on the element's own cNvPr."""
-    for child in el:
-        for c in child.iter(qn("p:cNvPr")):
-            c.set("descr", mark)
-            return
-
-
 # ---------- table ----------
 
 def _find_parent_frame(el):
@@ -1324,18 +1305,6 @@ def fill_timeline_layout(ctx, slide, slot_def, steps, ph, bbox, where):
 
 # ---------- chart ----------
 
-def _chart_data(value):
-    cd = CategoryChartData()
-    cd.categories = value["categories"]
-    fmt = value.get("number_format")
-    for s in value["series"]:
-        if fmt:
-            cd.add_series(s["name"], s["values"], number_format=fmt)
-        else:
-            cd.add_series(s["name"], s["values"])
-    return cd
-
-
 def _chart_of_frame(slide, frame_el):
     """Chart object of a graphicFrame (works even nested in a group)."""
     for e, attr, rid in _rel_ids(frame_el):
@@ -1371,20 +1340,6 @@ def _apply_series_fills(chart, fills):
         for old in spPr.findall(qn("a:solidFill")):
             spPr.remove(old)
         spPr.insert(0, copy.deepcopy(f))
-
-
-def _finish_chart(chart, value):
-    """Common post-processing for newly added charts."""
-    try:
-        plot = chart.plots[0]
-        plot.has_data_labels = True
-        if value.get("number_format"):
-            dl = plot.data_labels
-            dl.number_format = value["number_format"]
-            dl.number_format_is_linked = False
-    except Exception:
-        pass  # some chart types reject data labels; keep the chart
-    chart.has_legend = len(value["series"]) > 1
 
 
 def _replace_chart(ctx, slide, el, value, where, reason, fills=None):
@@ -1534,10 +1489,26 @@ def build(deck_path, map_path, template_path, out_path, strict=False,
     prs = Presentation(str(template_path))
     n_original = len(prs.slides)
     ctx = BuildCtx(prs, n_original)
+    library = []
     for i, spec in enumerate(deck["slides"], start=1):
-        comp = tmap["components"][spec["component"]]
+        source, comp = resolve_component(spec["component"], tmap)
         where = f"slide {i} (component '{spec['component']}')"
         ctx.slide_i, ctx.component = i, spec["component"]
+        if source == "library":
+            variant = spec.get("variant") or comp.variants[0]
+            layout, title_idx, region = resolve_canvas(prs, tmap, i)
+            slide = prs.slides.add_slide(layout)
+            variant = draw_component(
+                prs, slide, spec["component"], spec, tmap, i, variant,
+                region, title_idx)
+            remove_unfilled_placeholders(slide)
+            inherit_placeholder_geometry(slide)
+            library.append({"slide": i, "component": spec["component"],
+                            "variant": variant})
+            if spec.get("notes"):
+                slide.notes_slide.notes_text_frame.text = spec["notes"]
+            renumber_shape_ids(slide)
+            continue
         src = comp["source"]
         if "layout" in src:
             slide = prs.slides.add_slide(find_layout(prs, src["layout"]))
@@ -1557,7 +1528,8 @@ def build(deck_path, map_path, template_path, out_path, strict=False,
         if spec.get("notes"):
             slide.notes_slide.notes_text_frame.text = spec["notes"]
         renumber_shape_ids(slide)
-    report = {"fallbacks": ctx.fallbacks, "native": ctx.native}
+    report = {"fallbacks": ctx.fallbacks, "native": ctx.native,
+              "library": library}
     rp = report_path or (str(out_path) + ".build-report.json")
     Path(rp).write_text(json.dumps(report, ensure_ascii=False, indent=2),
                         encoding="utf-8")
@@ -1608,6 +1580,8 @@ def main(argv=None):
                   f"[{f['style_source']}]")
     else:
         print(f"built {out} : fallbacks: 0")
+    if report["library"]:
+        print(f"library components: {len(report['library'])}")
     return 0
 
 

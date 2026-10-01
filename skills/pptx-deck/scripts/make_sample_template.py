@@ -5,7 +5,6 @@ Fictional organization template "Sample Org": 16:9, Yu Gothic theme fonts,
 deep-navy color scheme, one cover + six component sample slides.
 """
 import argparse
-import copy
 from pathlib import Path
 
 from lxml import etree
@@ -239,7 +238,7 @@ def _set_ph_geom(layout, idx, x=None, y=None, w=None, h=None):
     raise RuntimeError(f"layout {layout.name}: ph idx {idx} not found")
 
 
-def _layout_ph_style(layout, idx, sz=None, algn=None):
+def _layout_ph_style(layout, idx, sz=None, algn=None, bold=None, color=None):
     for ph in layout.placeholders:
         if ph.placeholder_format.idx == idx:
             tx = ph._element.find(qn("p:txBody"))
@@ -256,6 +255,20 @@ def _layout_ph_style(layout, idx, sz=None, algn=None):
                 if dr is None:
                     dr = etree.SubElement(lp, qn("a:defRPr"))
                 dr.set("sz", str(sz))
+            if bold is not None or color is not None:
+                dr = lp.find(qn("a:defRPr"))
+                if dr is None:
+                    dr = etree.SubElement(lp, qn("a:defRPr"))
+                if bold is not None:
+                    dr.set("b", "1" if bold else "0")
+                if color is not None:
+                    for fill in dr.findall(qn("a:solidFill")):
+                        dr.remove(fill)
+                    solid = etree.SubElement(dr, qn("a:solidFill"))
+                    tag, value = (("a:srgbClr", color[1:])
+                                  if color.startswith("#")
+                                  else ("a:schemeClr", color))
+                    etree.SubElement(solid, qn(tag)).set("val", value)
             return
     raise RuntimeError(f"layout {layout.name}: ph idx {idx} not found")
 
@@ -344,16 +357,8 @@ def build_template():
                  w=Inches(11.5), h=Inches(1.5))
     _layout_ph_style(section_layout, 0, sz=3200)
 
-    # widen title/body placeholders on content layouts; top-anchor the
-    # title with the same box as the sample-slide titles so one-line
-    # titles align everywhere
-    for lname in ("Title and Content", "Two Content", "Title Only"):
-        lay = find_layout(prs, lname)
-        _set_ph_geom(lay, 0, x=Inches(0.5), y=Inches(0.3),
-                     w=Inches(12.33), h=Inches(1.15))
-        _set_ph_anchor(lay, 0, "t")
-    content = find_layout(prs, "Title and Content")
-    _set_ph_geom(content, 1, x=Inches(0.5), w=Inches(12.33))
+    _widen_content_layouts(
+        prs, ("Title and Content", "Two Content", "Title Only"))
 
     blank = find_layout(prs, "Blank")
 
@@ -534,15 +539,165 @@ def build_template():
     return prs
 
 
+def edit_minimal_theme(prs):
+    theme_part = next(
+        (rel.target_part for rel in prs.slide_masters[0].part.rels.values()
+         if rel.reltype.endswith("/theme")), None)
+    if theme_part is None:
+        raise RuntimeError("theme part not found")
+    root = etree.fromstring(theme_part.blob)
+    ns = {"a": A}
+    colors = {
+        "dk1": "202124", "lt1": "FFFFFF", "dk2": "0F5B4F",
+        "lt2": "EEF4F2", "accent1": "0F5B4F", "accent2": "E07A1F",
+        "accent3": "6C817B", "accent4": "9DAEA9", "accent5": "CAD4D1",
+        "accent6": "718782", "hlink": "E07A1F", "folHlink": "8F5522",
+    }
+    for name, value in colors.items():
+        slot = root.find(f".//a:clrScheme/a:{name}", ns)
+        for child in list(slot):
+            slot.remove(child)
+        color = etree.SubElement(slot, qn("a:srgbClr"))
+        color.set("val", value)
+    for tag in ("a:majorFont", "a:minorFont"):
+        group = root.find(f".//a:fontScheme/{tag}", ns)
+        for name in ("latin", "ea"):
+            font = group.find(f"a:{name}", ns)
+            if font is None:
+                font = etree.SubElement(group, qn(f"a:{name}"))
+            font.set("typeface", FONT)
+    if hasattr(theme_part, "element"):
+        theme_part._element = root
+    else:
+        theme_part._blob = etree.tostring(
+            root, xml_declaration=True, encoding="UTF-8", standalone=True)
+
+
+def build_minimal_template():
+    prs = Presentation()
+    prs.slide_width = Emu(12192000)
+    prs.slide_height = Emu(6858000)
+    edit_minimal_theme(prs)
+    _widen_content_layouts(prs, ("Title and Content", "Title Only"))
+    _style_minimal_titles(prs)
+    title_slide = prs.slides.add_slide(find_layout(prs, "Title Slide"))
+    title_slide.placeholders[0].text = "社内問い合わせ窓口の一本化"
+    title_slide.placeholders[1].text = "Sample Org"
+
+    content_layout = find_layout(prs, "Title and Content")
+    table_slide = prs.slides.add_slide(content_layout)
+    table_slide.placeholders[0].text = "サンプル表"
+    table_shape = table_slide.shapes.add_table(
+        4, 3, Inches(0.9), Inches(1.7), Inches(11.5), Inches(3.2))
+    table_shape.name = "DataTable"
+    for row, values in enumerate((
+            ("項目", "現状", "目標"),
+            ("受付", "複数窓口", "一本化"),
+            ("回答", "担当者ごと", "共通FAQ"),
+            ("記録", "分散", "一元管理"))):
+        for col, value in enumerate(values):
+            cell = table_shape.table.cell(row, col)
+            cell.text = value
+            cell.margin_left = Inches(0.12)
+            cell.margin_right = Inches(0.12)
+            cell.margin_top = Inches(0.04)
+            cell.margin_bottom = Inches(0.04)
+
+    org_slide = prs.slides.add_slide(content_layout)
+    org_slide.placeholders[0].text = "サンプル体制図"
+    mark_region(org_slide, "OrgRegion", Inches(0.9), Inches(1.7),
+                Inches(11.5), Inches(4.8))
+    node = org_slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE, Inches(5.3), Inches(2.4),
+        Inches(2.6), Inches(1.0))
+    node.name = "OrgNode"
+    node.fill.solid()
+    node.fill.fore_color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+    node.line.color.rgb = RGBColor(0x0F, 0x5B, 0x4F)
+    node.text_frame.text = "責任者\n氏名"
+    for paragraph in node.text_frame.paragraphs:
+        paragraph.alignment = PP_ALIGN.CENTER
+        for run in paragraph.runs:
+            set_run_fonts(run, size=14, color=RGBColor(0x20, 0x21, 0x24))
+    return prs
+
+
+def _add_layout_accent(layout, name):
+    sp_tree = layout.shapes._spTree
+    shape_ids = [int(shape.get("id"))
+                 for shape in sp_tree.iter(qn("p:cNvPr"))]
+    sp = etree.Element(qn("p:sp"))
+    nv_sp = etree.SubElement(sp, qn("p:nvSpPr"))
+    etree.SubElement(
+        nv_sp, qn("p:cNvPr"), id=str(max(shape_ids, default=1) + 1),
+        name=name)
+    etree.SubElement(nv_sp, qn("p:cNvSpPr"))
+    etree.SubElement(nv_sp, qn("p:nvPr"))
+    sp_pr = etree.SubElement(sp, qn("p:spPr"))
+    xfrm = etree.SubElement(sp_pr, qn("a:xfrm"))
+    etree.SubElement(xfrm, qn("a:off"), x=str(int(Inches(0.9))),
+                     y=str(int(Inches(2.28))))
+    etree.SubElement(xfrm, qn("a:ext"), cx=str(int(Inches(1.2))),
+                     cy=str(int(Inches(0.06))))
+    geometry = etree.SubElement(sp_pr, qn("a:prstGeom"), prst="rect")
+    etree.SubElement(geometry, qn("a:avLst"))
+    solid = etree.SubElement(sp_pr, qn("a:solidFill"))
+    etree.SubElement(solid, qn("a:schemeClr"), val="accent2")
+    line = etree.SubElement(sp_pr, qn("a:ln"))
+    etree.SubElement(line, qn("a:noFill"))
+    tx_body = etree.SubElement(sp, qn("p:txBody"))
+    etree.SubElement(tx_body, qn("a:bodyPr"))
+    etree.SubElement(tx_body, qn("a:lstStyle"))
+    etree.SubElement(tx_body, qn("a:p"))
+    sp_tree.append(sp)
+
+
+def _style_minimal_titles(prs):
+    for name in ("Title Only", "Title and Content"):
+        layout = find_layout(prs, name)
+        _set_ph_geom(layout, 0, x=Inches(0.5), y=Inches(0.4),
+                     w=Inches(12.33), h=Inches(1.15))
+        _set_ph_anchor(layout, 0, "t")
+        _layout_ph_style(layout, 0, sz=2800, algn="l", bold=True,
+                         color="dk2")
+    for name in ("Title Slide", "Section Header"):
+        layout = find_layout(prs, name)
+        _set_ph_geom(layout, 0, x=Inches(0.9), y=Inches(2.6),
+                     w=Inches(11.5), h=Inches(0.75))
+        _set_ph_anchor(layout, 0, "t")
+        _layout_ph_style(layout, 0, sz=4000, algn="l", bold=True,
+                         color="dk2")
+        _add_layout_accent(layout, f"{name} Accent")
+    title = find_layout(prs, "Title Slide")
+    _set_ph_geom(title, 1, x=Inches(0.9), y=Inches(3.47),
+                 w=Inches(11.5), h=Inches(0.55))
+    _set_ph_anchor(title, 1, "t")
+    _layout_ph_style(title, 1, sz=1800, algn="l", color="#595F6B")
+
+
+def _widen_content_layouts(prs, names):
+    for lname in names:
+        layout = find_layout(prs, lname)
+        _set_ph_geom(layout, 0, x=Inches(0.5), y=Inches(0.3),
+                     w=Inches(12.33), h=Inches(1.15))
+        _set_ph_anchor(layout, 0, "t")
+    if "Title and Content" in names:
+        content = find_layout(prs, "Title and Content")
+        _set_ph_geom(content, 1, x=Inches(0.5), w=Inches(12.33))
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--variant", choices=("sample", "minimal"),
+                    default="sample")
     ap.add_argument("-o", "--output",
                     default=str(Path(__file__).resolve().parents[1]
                                 / "templates" / "sample-org" / "template.pptx"))
     args = ap.parse_args()
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
-    prs = build_template()
+    prs = (build_minimal_template() if args.variant == "minimal"
+           else build_template())
     prs.save(str(out))
     print(f"wrote {out}")
 

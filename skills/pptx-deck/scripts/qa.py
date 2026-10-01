@@ -10,7 +10,6 @@ import json
 import math
 import re
 import sys
-import unicodedata
 from pathlib import Path
 
 from pptx import Presentation
@@ -19,27 +18,20 @@ from pptx.util import Emu
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build import absolute_bbox  # noqa: E402
-from inventory import pptx_to_pngs  # noqa: E402
+from common import (FALLBACK_MARK, GENERATED_MARK, LINE_HEIGHT,
+                    char_units)  # noqa: E402
+from components import resolve_component  # noqa: E402
+from engine import render_pngs  # noqa: E402
 
 EMU_PER_IN = 914400
 GENERIC_MARKERS = ["Click to add", "クリックして", "Lorem", "TODO", "[insert"]
 SLIDE_BOTTOM_MARGIN = Emu(int(0.25 * EMU_PER_IN))
 OVERLAP_MIN_RATIO = 0.05  # warn when >5% of the drawn shape is covered
 
-# descr markers build.py stamps on drawn shapes
-FALLBACK_MARK = "pptx-deck-fallback"
-GENERATED_MARK = "pptx-deck-generated"
 DRAWN_MARKS = (FALLBACK_MARK, GENERATED_MARK)
 DRAWN_SHAPE_TAGS = {qn("p:sp"), qn("p:grpSp"), qn("p:pic"),
                     qn("p:graphicFrame")}
-LINE_HEIGHT = 1.2
 OVERFLOW_TOLERANCE = 1.05
-
-
-def char_units(ch):
-    if unicodedata.east_asian_width(ch) in ("F", "W"):
-        return 1.0
-    return 0.55
 
 
 # ---------- font size resolution ----------
@@ -246,7 +238,7 @@ def _overlap_area(a, b):
     return w * h if w > 0 and h > 0 else 0
 
 
-def check_deck_qa(pptx_path, deck, tmap, render_dir):
+def check_deck_qa(pptx_path, deck, tmap, render_dir, engine="auto"):
     errors = []
     warnings = []
 
@@ -459,11 +451,12 @@ def check_deck_qa(pptx_path, deck, tmap, render_dir):
     # 5. deck-level checks
     if deck is not None and tmap is not None:
         _check_deck_consistency(prs, deck, tmap, err)
+        _check_text_only_slides(deck, tmap, warn)
 
     # 6. render
     if render_dir:
         try:
-            pptx_to_pngs(pptx_path, render_dir)
+            render_pngs(pptx_path, render_dir, engine)
         except Exception as e:
             err(None, None, f"render failed: {e}")
 
@@ -497,11 +490,10 @@ def _check_deck_consistency(prs, deck, tmap, err):
     for k in ("purpose", "audience", "desired_action", "key_message"):
         if not story.get(k):
             err(None, None, f"story.{k} is empty")
-    comps = tmap.get("components", {})
     # content slides: message + notes
     for i, s in enumerate(deck["slides"], start=1):
-        comp = comps.get(s["component"], {})
-        if comp.get("kind") == "content":
+        source, comp = resolve_component(s["component"], tmap)
+        if source == "library" or comp.get("kind") == "content":
             if not s.get("message"):
                 err(i, None, "content slide missing 'message'")
             if not s.get("notes"):
@@ -512,9 +504,12 @@ def _check_deck_consistency(prs, deck, tmap, err):
     if toc_slide is None:
         return
     items = deck["slides"][toc_slide]["slots"].get("items", [])
-    structural = [(i, s) for i, s in enumerate(deck["slides"])
-                  if comps.get(s["component"], {}).get("kind")
-                  == "structural" and i != toc_slide]
+    structural = []
+    for i, slide_spec in enumerate(deck["slides"]):
+        source, component = resolve_component(slide_spec["component"], tmap)
+        if (source == "template" and component.get("kind") == "structural"
+                and i != toc_slide):
+            structural.append((i, slide_spec))
     # drop title (first slide) and a trailing structural slide (closing)
     structural = [(i, s) for i, s in structural if i > toc_slide]
     titles = [str(s["slots"].get("title", "")) for _, s in structural]
@@ -526,12 +521,45 @@ def _check_deck_consistency(prs, deck, tmap, err):
             f"TOC items {items} do not match divider titles {titles}")
 
 
+def _check_text_only_slides(deck, tmap, warn):
+    content = []
+    text_only = []
+    run = []
+    long_runs = []
+    for i, spec in enumerate(deck["slides"], start=1):
+        source, component = resolve_component(spec["component"], tmap)
+        is_content = (source == "library" or
+                      component.get("kind") == "content")
+        is_text = (source == "template" and is_content and
+                   all(slot.get("type") in ("text", "list")
+                       for slot in component.get("slots", {}).values()))
+        if is_content:
+            content.append(i)
+        if is_text:
+            text_only.append(i)
+            run.append(i)
+        else:
+            if len(run) >= 3:
+                long_runs.extend(run)
+            run = []
+    if len(run) >= 3:
+        long_runs.extend(run)
+    flagged = set(long_runs)
+    if len(content) >= 4 and len(text_only) / len(content) > 0.5:
+        flagged.update(text_only)
+    for i in sorted(flagged):
+        warn(i, None, "text-only slide; consider library components "
+             "cards/process/kpi/comparison before using bullets")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("pptx")
     ap.add_argument("--deck")
     ap.add_argument("--map", dest="map_path")
     ap.add_argument("--render", dest="render_dir")
+    ap.add_argument("--engine", default="auto",
+                    choices=("auto", "powerpoint", "libreoffice"))
     ap.add_argument("--report", dest="report_path")
     ap.add_argument("--build-report", dest="build_report",
                     help="build.py build-report.json; fallbacks become "
@@ -543,12 +571,15 @@ def main(argv=None):
     tmap = json.loads(Path(args.map_path).read_text(encoding="utf-8")) \
         if args.map_path else None
     fallbacks = []
+    library = []
     if args.build_report:
         brep = json.loads(
             Path(args.build_report).read_text(encoding="utf-8"))
         fallbacks = brep.get("fallbacks", [])
+        library = brep.get("library", [])
 
-    errors, warnings = check_deck_qa(args.pptx, deck, tmap, args.render_dir)
+    errors, warnings = check_deck_qa(
+        args.pptx, deck, tmap, args.render_dir, args.engine)
     for f in fallbacks:
         warnings.append({
             "slide": f.get("slide"), "shape": f.get("target"),
@@ -556,7 +587,7 @@ def main(argv=None):
                        f"{f.get('reason')} -> {f.get('substitute')} "
                        f"[{f.get('style_source')}]"})
     report = {"file": args.pptx, "errors": errors, "warnings": warnings,
-              "fallbacks": fallbacks}
+              "fallbacks": fallbacks, "library": library}
     if args.report_path:
         Path(args.report_path).write_text(
             json.dumps(report, ensure_ascii=False, indent=2),
@@ -578,6 +609,10 @@ def main(argv=None):
                   f"［{f['style_source']}］")
     else:
         print("テンプレに準拠できなかった箇所: なし")
+    print(f"スキルの部品で描いた箇所: {len(library)}件")
+    for item in library:
+        print(f"  - スライド{item['slide']}: {item['component']} / "
+              f"{item['variant']}")
     return 1 if errors else 0
 
 

@@ -25,6 +25,11 @@ jobs:
           sudo apt-get install -y libreoffice-impress fonts-noto-cjk
       - name: Install Python deps
         run: pip install -r skills/pptx-deck/scripts/requirements.txt
+      - name: Detect renderer
+        run: |
+          mkdir -p /tmp/out
+          python skills/pptx-deck/scripts/engine.py detect \
+            --json /tmp/out/engine.json
       - name: Unit tests
         working-directory: skills/pptx-deck
         run: python -m unittest discover -s tests -v
@@ -50,7 +55,28 @@ jobs:
             --deck examples/redmine-migration/deck.json \
             --map templates/sample-org/template-map.json \
             --render /tmp/out/preview --report /tmp/out/report.json \
-            --build-report /tmp/out/redmine-migration.pptx.build-report.json
+            --build-report /tmp/out/redmine-migration.pptx.build-report.json \
+            --engine auto
+      - name: Build component gallery
+        working-directory: skills/pptx-deck
+        run: |
+          python scripts/make_sample_template.py --variant minimal \
+            -o /tmp/out/minimal-template.pptx
+          python scripts/build.py \
+            --deck examples/component-gallery/deck.json \
+            --map templates/minimal-org/template-map.json \
+            --template /tmp/out/minimal-template.pptx \
+            -o /tmp/out/component-gallery.pptx \
+            --strict
+      - name: QA + render component gallery
+        working-directory: skills/pptx-deck
+        run: |
+          python scripts/qa.py /tmp/out/component-gallery.pptx \
+            --deck examples/component-gallery/deck.json \
+            --map templates/minimal-org/template-map.json \
+            --render /tmp/out/gallery-preview --report /tmp/out/gallery-report.json \
+            --build-report /tmp/out/component-gallery.pptx.build-report.json \
+            --engine auto
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -61,3 +87,8 @@ jobs:
             /tmp/out/preview/*.png
             /tmp/out/report.json
             /tmp/out/redmine-migration.pptx.build-report.json
+            /tmp/out/engine.json
+            /tmp/out/component-gallery.pptx
+            /tmp/out/gallery-preview/*.png
+            /tmp/out/gallery-report.json
+            /tmp/out/component-gallery.pptx.build-report.json

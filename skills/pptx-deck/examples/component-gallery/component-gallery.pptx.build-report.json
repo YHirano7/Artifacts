@@ -1,0 +1,111 @@
+{
+  "fallbacks": [],
+  "native": 2,
+  "library": [
+    {
+      "slide": 2,
+      "component": "cards",
+      "variant": "header"
+    },
+    {
+      "slide": 3,
+      "component": "cards",
+      "variant": "outline"
+    },
+    {
+      "slide": 4,
+      "component": "cards",
+      "variant": "numbered"
+    },
+    {
+      "slide": 5,
+      "component": "kpi",
+      "variant": "tiles"
+    },
+    {
+      "slide": 6,
+      "component": "kpi",
+      "variant": "band"
+    },
+    {
+      "slide": 7,
+      "component": "process",
+      "variant": "chevron"
+    },
+    {
+      "slide": 8,
+      "component": "process",
+      "variant": "circles"
+    },
+    {
+      "slide": 9,
+      "component": "process",
+      "variant": "arrows"
+    },
+    {
+      "slide": 10,
+      "component": "comparison",
+      "variant": "before_after"
+    },
+    {
+      "slide": 11,
+      "component": "comparison",
+      "variant": "versus"
+    },
+    {
+      "slide": 12,
+      "component": "matrix",
+      "variant": "matrix"
+    },
+    {
+      "slide": 13,
+      "component": "pyramid",
+      "variant": "pyramid"
+    },
+    {
+      "slide": 14,
+      "component": "pyramid",
+      "variant": "funnel"
+    },
+    {
+      "slide": 15,
+      "component": "cycle",
+      "variant": "cycle"
+    },
+    {
+      "slide": 16,
+      "component": "layers",
+      "variant": "layers"
+    },
+    {
+      "slide": 17,
+      "component": "roadmap",
+      "variant": "roadmap"
+    },
+    {
+      "slide": 18,
+      "component": "message",
+      "variant": "banner"
+    },
+    {
+      "slide": 19,
+      "component": "message",
+      "variant": "quote"
+    },
+    {
+      "slide": 20,
+      "component": "checklist",
+      "variant": "checklist"
+    },
+    {
+      "slide": 21,
+      "component": "chart",
+      "variant": "side"
+    },
+    {
+      "slide": 22,
+      "component": "chart",
+      "variant": "full"
+    }
+  ]
+}
