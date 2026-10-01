@@ -15,7 +15,7 @@ description: ストーリー設計→deck.json→組織のPowerPointテンプレ
 ```
 python scripts/engine.py detect
 ```
-Windows では PowerShell 経由で PowerPoint COM を先に確認し、使えない場合は LibreOffice を探す。`none` の場合は環境を整える。ビルド自体はレンダリング無しでも実行できるが、`--render` / `--thumbs` には利用可能なエンジンが必要。確認済みの環境では `--engine powerpoint` または `--engine libreoffice` を指定でき、明示指定時は別エンジンへフォールバックしない。
+Windows では PowerShell 経由で PowerPoint COM を先に確認し、使えない場合は LibreOffice を探す。ビルド自体はレンダリング無しでも実行できるが、`--render` / `--thumbs` には利用可能なエンジンが必要。確認済みの環境では `--engine powerpoint` または `--engine libreoffice` を指定でき、明示指定時は別エンジンへフォールバックしない。
 
 - **PowerPoint**: previewは最終表示と一致する。納品PDFは `python scripts/engine.py pdf out.pptx out.pdf --engine powerpoint` で生成する。
 - **LibreOffice**: フォント置換で改行・配置が変わることがある。余白を確保し、テンプレートで使うフォントを確認した上で、完成版をPowerPointで確認してもらう。
