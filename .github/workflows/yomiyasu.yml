@@ -1,0 +1,50 @@
+name: yomiyasu
+
+on:
+  push:
+    paths:
+      - "skills/yomiyasu/**"
+      - ".github/workflows/yomiyasu.yml"
+      - ".github/scripts/validate_skill.py"
+  pull_request:
+    paths:
+      - "skills/yomiyasu/**"
+      - ".github/workflows/yomiyasu.yml"
+      - ".github/scripts/validate_skill.py"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Validate package
+        run: python .github/scripts/validate_skill.py skills/yomiyasu --zip "$RUNNER_TEMP/yomiyasu.zip"
+      - name: Upload skill package
+        uses: actions/upload-artifact@v7
+        with:
+          name: yomiyasu-skill
+          path: ${{ runner.temp }}/yomiyasu.zip
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run unit tests
+        run: python -m unittest discover -s skills/yomiyasu/tests -v
+      - name: Smoke test linter
+        shell: bash
+        run: |
+          python skills/yomiyasu/scripts/yomiyasu_lint.py skills/yomiyasu/SKILL.md
+          printf '%s\n' '昨日、私は図書館で本を借りました。' | python skills/yomiyasu/scripts/yomiyasu_lint.py
