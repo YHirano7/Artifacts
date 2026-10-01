@@ -14,6 +14,7 @@ from lxml import etree
 from pptx import Presentation
 from pptx.oxml.ns import qn
 
+from common import read_theme
 from engine import render_pngs
 
 EMU_PER_IN = 914400
@@ -67,41 +68,6 @@ def _shape_info(shape):
     return info
 
 
-def _theme_data(prs):
-    master = prs.slide_masters[0]
-    theme_part = next(
-        (rel.target_part for rel in master.part.rels.values()
-         if rel.reltype.endswith("/theme")), None)
-    if theme_part is None:
-        return {"colors": {}, "fonts": {}}
-    root = etree.fromstring(theme_part.blob)
-    ns = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
-    keys = ("dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3",
-            "accent4", "accent5", "accent6", "hlink", "folHlink")
-    color_scheme = root.find(".//a:themeElements/a:clrScheme", ns)
-    colors = {}
-    if color_scheme is not None:
-        for key in keys:
-            slot = color_scheme.find(f"a:{key}", ns)
-            if slot is not None and len(slot):
-                color = slot[0]
-                value = color.get("val") or color.get("lastClr")
-                if value:
-                    colors[key] = f"#{value.upper()}"
-    font_scheme = root.find(".//a:fontScheme", ns)
-    fonts = {}
-    if font_scheme is not None:
-        for name, tag in (("major", "majorFont"), ("minor", "minorFont")):
-            group = font_scheme.find(f"a:{tag}", ns)
-            fonts[name] = {
-                key: (group.find(f"a:{key}", ns).get("typeface", "")
-                      if group is not None and group.find(f"a:{key}", ns)
-                      is not None else "")
-                for key in ("latin", "ea")
-            }
-    return {"colors": colors, "fonts": fonts}
-
-
 def _profile(prs):
     used = Counter()
     parts = [slide.part for slide in prs.slides]
@@ -120,7 +86,7 @@ def _profile(prs):
                for ph in layout.placeholders)
     ]
     return {
-        "theme": _theme_data(prs),
+        "theme": read_theme(prs),
         "used_colors": [{"rgb": color, "count": count}
                         for color, count in used.most_common(8)],
         "canvas_candidates": candidates,

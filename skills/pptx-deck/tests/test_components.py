@@ -16,10 +16,13 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 from build import validate_deck
-from common import BuildError
-from components import (LIBRARY, _write_color, fit_siblings, fit_size,
-                        resolve_canvas, resolve_component, resolve_style,
-                        validate_component)
+import common
+import components as components_module
+import inventory as inventory_module
+from common import BuildError, GENERATED_MARK, read_theme
+from components import (EMU_PER_IN, LIBRARY, ROLE_DEFAULTS, _scheme_ref,
+                        _write_color, fit_siblings, fit_size, resolve_canvas,
+                        resolve_component, resolve_style, validate_component)
 from inventory import collect
 from make_sample_template import build_minimal_template
 from qa import _check_text_only_slides
@@ -52,6 +55,68 @@ class TestComponents(unittest.TestCase):
             capture_output=True, text=True, env=env)
         self.assertEqual(build.returncode, 0, build.stderr + build.stdout)
         prs = Presentation(str(output))
+        generated_shapes = []
+        round_rectangles = 0
+        for slide in prs.slides:
+            for shape_el in slide._element.xpath(".//p:sp"):
+                c_nvpr = shape_el.find(
+                    f"{qn('p:nvSpPr')}/{qn('p:cNvPr')}")
+                if c_nvpr is None or c_nvpr.get("descr") != GENERATED_MARK:
+                    continue
+                generated_shapes.append(shape_el)
+                self.assertEqual(shape_el.xpath(".//p:style"), [])
+                geometry = shape_el.find(
+                    f"{qn('p:spPr')}/{qn('a:prstGeom')}")
+                if geometry is None or geometry.get("prst") != "roundRect":
+                    continue
+                round_rectangles += 1
+                ext = shape_el.find(
+                    f"{qn('p:spPr')}/{qn('a:xfrm')}/{qn('a:ext')}")
+                width = int(ext.get("cx"))
+                height = int(ext.get("cy"))
+                expected = max(
+                    1, min(100000, round(0.06 * EMU_PER_IN
+                                         / min(width, height) * 100000)))
+                av_lst = geometry.find(qn("a:avLst"))
+                adjustment = av_lst.find(
+                    f"{qn('a:gd')}[@name='adj']")
+                self.assertEqual(adjustment.get("fmla"), f"val {expected}")
+        self.assertTrue(generated_shapes)
+        self.assertGreater(round_rectangles, 0)
+
+        def find_shape(name):
+            for slide in prs.slides:
+                for shape_el in slide._element.xpath(".//p:sp"):
+                    c_nvpr = shape_el.find(
+                        f"{qn('p:nvSpPr')}/{qn('p:cNvPr')}")
+                    if c_nvpr is not None and c_nvpr.get("name") == name:
+                        return shape_el
+            return None
+
+        card_body = find_shape("Card 1 copy")
+        body_paragraphs = card_body.xpath("./p:txBody/a:p")
+        self.assertGreater(len(body_paragraphs), 1)
+        for paragraph in body_paragraphs:
+            ppr = paragraph.find(qn("a:pPr"))
+            self.assertIsNotNone(ppr.find(qn("a:buChar")))
+            self.assertEqual(ppr.get("marL"), str(round(0.22 * EMU_PER_IN)))
+            self.assertEqual(ppr.get("indent"),
+                             str(round(-0.12 * EMU_PER_IN)))
+            self.assertEqual(
+                ppr.find(f"{qn('a:spcAft')}/{qn('a:spcPts')}").get("val"),
+                "400")
+        process_detail = find_shape("Process 1 detail")
+        for paragraph in process_detail.xpath("./p:txBody/a:p"):
+            ppr = paragraph.find(qn("a:pPr"))
+            self.assertIsNone(ppr.find(qn("a:buChar")) if ppr is not None
+                              else None)
+        kpi_value = find_shape("KPI 1 value")
+        value_paragraphs = kpi_value.xpath("./p:txBody/a:p")
+        self.assertEqual(len(value_paragraphs), 1)
+        self.assertEqual(
+            value_paragraphs[0].xpath("./a:r/a:t/text()"),
+            ["1", " 窓口"])
+
         connectors = [shape for slide in prs.slides for shape in slide.shapes
                       if shape.name.startswith("Cycle connector")]
         self.assertEqual(len(connectors), 4)
@@ -83,8 +148,17 @@ class TestComponents(unittest.TestCase):
         style = resolve_style(prs, {})
         self.assertEqual(style.colors["primary"].scheme, "accent1")
         self.assertEqual(style.colors["on_primary"].scheme, "lt1")
+        self.assertEqual(ROLE_DEFAULTS["surface"], "bg2")
+        clr_map = {"tx1": "dk1", "tx2": "dk2",
+                   "bg1": "lt1", "bg2": "lt2"}
+        clr_map.update(prs.slide_masters[0].element.find(qn("p:clrMap")).attrib)
+        expected_surface = _scheme_ref("bg2", clr_map)
+        self.assertEqual(style.colors["surface"], expected_surface)
         self.assertEqual(style.fonts["heading_ea"], "Yu Gothic")
         self.assertEqual(style.fonts["body_latin"], "Yu Gothic")
+        surface_override = resolve_style(
+            prs, {"style": {"palette": {"surface": "#123456"}}})
+        self.assertEqual(surface_override.colors["surface"].rgb, "123456")
 
         themed = OxmlElement("p:spPr")
         _write_color(themed, style.colors["primary"])
@@ -159,6 +233,10 @@ class TestComponents(unittest.TestCase):
 
     def test_inventory_theme_explicit_colors_and_canvas_candidates(self):
         data = collect(self.template)
+        self.assertIs(components_module.read_theme, common.read_theme)
+        self.assertIs(inventory_module.read_theme, common.read_theme)
+        self.assertEqual(data["theme"], read_theme(Presentation(
+            str(self.template))))
         self.assertEqual(data["theme"]["colors"]["accent1"], "#0F5B4F")
         self.assertEqual(data["theme"]["colors"]["accent2"], "#E07A1F")
         self.assertEqual(data["theme"]["fonts"]["major"]["ea"], "Yu Gothic")
@@ -184,6 +262,23 @@ class TestComponents(unittest.TestCase):
                                          for layout in prs.slide_layouts])
         self.assertIn("Title Only", [layout.name
                                      for layout in prs.slide_layouts])
+        for name in ("Title Slide", "Section Header", "Title Only",
+                     "Title and Content"):
+            layout = next(item for item in prs.slide_layouts
+                          if item.name == name)
+            title = next(ph for ph in layout.placeholders
+                         if ph.placeholder_format.idx == 0)
+            self.assertAlmostEqual(title.top / EMU_PER_IN, 0.4, places=2)
+            level = title._element.find(
+                f"{qn('p:txBody')}/{qn('a:lstStyle')}/"
+                f"{qn('a:lvl1pPr')}")
+            run_props = level.find(qn("a:defRPr"))
+            self.assertEqual(run_props.get("sz"), "2800")
+            self.assertEqual(run_props.get("b"), "1")
+            self.assertEqual(
+                run_props.find(
+                    f"{qn('a:solidFill')}/{qn('a:schemeClr')}").get("val"),
+                "dk2")
 
     def test_text_only_warning_threshold(self):
         tmap = {"components": {

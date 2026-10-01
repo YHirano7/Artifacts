@@ -46,14 +46,13 @@ template-map.json にない component は、このライブラリから解決す
 
 ## 共通slotとレイアウト
 
-全componentで `lead`（描画域上部の導入文）と `takeaway`（下部の結論バー）を任意指定できる。指定すると本文領域を縮める。ライブラリの描画域はmapの `canvas` で設定する。未指定時は `Title Only`、次に `タイトルのみ` のlayoutを選び、タイトルplaceholder下を使う。詳しくは [template-mapping.md](template-mapping.md) を参照。
+全componentで `lead`（導入文）と `takeaway`（結論）を任意指定できる。詳しくは [template-mapping.md](template-mapping.md) を参照。
 
 ## 見た目とfit
 
-- 色はtheme clrSchemeとmaster clrMapから解決し、通常は `schemeClr` で保持する。mapで `#RRGGBB` を明示した値だけ `srgbClr` にする。フォントはtheme major/minorのlatin・eaを明示指定する。
-- palette roleの既定は `primary=accent1`、`highlight=accent2`、`text=tx1`、`muted=tx1`（淡色変換）、`surface=primary`（淡色変換）、`line=bg1`（淡色変換）、`background=bg1`。`on_primary` と `on_highlight` は背景色との相対輝度差が大きい `lt1` / `dk1` を自動選択し、mapから上書きできない。
-- 文字サイズの既定はheading 16pt、body 12pt、caption 10pt、number 36pt、min 9pt。mapの `style.palette` / `style.fonts` / `style.sizes` で個別に上書きできる。`surface` を直接指定しない場合はprimary色に追従する。
-- 図形は編集可能なネイティブ図形で、影なし・0.75pt線・控えめな角丸。カード・工程・タイルなど繰り返し単位は `<Component> <n>` 名のPowerPointグループにまとめる。
-- fitはQAと同じ文字幅・行高の近似見積りを使い、baseサイズからminまで1pt刻みで縮小する。同種の兄弟要素は最小サイズに統一する。minでも収まらない場合はslide/component/slotの位置、必要高さと文字数の目安を含むbuild errorになる。件数上限を超えた場合はスライド分割を促す。
+- 図解は編集可能なPowerPoint図形で作られ、色とフォントはテンプレートに合わせる。mapの `style.palette` と `style.fonts` で上書きできる。
+- 色の既定は `primary=accent1`、`highlight=accent2`、`text=tx1`、`muted=tx1`、`surface=bg2`、`line=bg1`、`background=bg1`。配色はmapの `style.palette` で変更できる。
+- 既定サイズはheading 18pt、body 14pt、caption 12pt、number 40pt、最小10pt。mapの `style.sizes` で調整できる。
+- 内容が収まらない場合は最小サイズまで縮小する。最小サイズでも収まらなければbuild errorになるため、文章を短くするかスライドを分ける。
 
 全variantの例は `examples/component-gallery/deck.json` にある。

@@ -17,7 +17,7 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.opc.package import PackURI, Part
 from pptx.oxml.ns import qn
-from pptx.util import Emu, Inches
+from pptx.util import Inches
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -304,7 +304,6 @@ class TestGroupsLayoutCharts(unittest.TestCase):
             grp = s.shapes.add_group_shape([toc])
             grp.name = "TocGroup"
         tpath = self._mutate_template(mutate)
-        tmap = dict(self_tmap())
         mpath = self._map_for({
             "toc": self_tmap()["components"]["toc"]}, tpath)
         deck = make_deck()

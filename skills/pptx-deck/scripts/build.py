@@ -15,7 +15,7 @@ import jsonschema
 from lxml import etree
 from pptx import Presentation
 from pptx.enum.shapes import MSO_CONNECTOR
-from pptx.opc.package import PackURI, Part, XmlPart
+from pptx.opc.package import PackURI, XmlPart
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches
 
@@ -23,7 +23,7 @@ from common import (CHART_TYPES, FALLBACK_MARK, GENERATED_MARK, BuildError,
                     chart_data as _chart_data, fail,
                     finish_chart as _finish_chart,
                     mark_el as _mark_el)
-from components import (LIBRARY, draw_component, resolve_canvas,
+from components import (draw_component, resolve_canvas,
                         resolve_component, validate_component)
 
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -162,26 +162,22 @@ def validate_deck(deck, tmap):
         comp_name = spec["component"]
         source, comp = resolve_component(comp_name, tmap)
         if source == "library":
-            variant = validate_component(
+            validate_component(
                 comp_name, {k: v for k, v in spec.get("slots", {}).items()
                             if k != "title"},
                 spec.get("variant"), i)
+        else:
+            if "variant" in spec:
+                fail(f"slide {i}: template component '{comp_name}' "
+                     "does not support variant")
+            effective_slots(spec, comp, i)
+        is_content = source == "library" or comp.get("kind") == "content"
+        if is_content:
             if not spec.get("message"):
                 fail(f"slide {i}: content slide requires a non-empty "
                      f"'message' (it is the slide's action title)")
             if not spec.get("notes"):
                 fail(f"slide {i}: content slide requires speaker 'notes'")
-        else:
-            if "variant" in spec:
-                fail(f"slide {i}: template component '{comp_name}' "
-                     "does not support variant")
-            if comp.get("kind") == "content":
-                if not spec.get("message"):
-                    fail(f"slide {i}: content slide requires a non-empty "
-                         f"'message' (it is the slide's action title)")
-                if not spec.get("notes"):
-                    fail(f"slide {i}: content slide requires speaker 'notes'")
-            effective_slots(spec, comp, i)
 
 
 # ---------- shape tree / geometry helpers ----------

@@ -201,6 +201,8 @@ def render_pngs(pptx, out_dir, engine, width_px=960):
     pptx_path = Path(pptx).resolve()
     out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    for existing in out_dir.glob(f"{pptx_path.stem}-*.png"):
+        existing.unlink()
     if engine == "powerpoint":
         proc = _run_powershell(
             ["-In", str(pptx_path), "-Out", str(out_dir),

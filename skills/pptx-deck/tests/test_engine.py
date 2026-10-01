@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -80,6 +81,33 @@ class TestEngine(unittest.TestCase):
     def test_explicit_engine_is_returned_without_fallback(self):
         with mock.patch.dict(os.environ, {"PPTX_DECK_ENGINE": "libreoffice"}):
             self.assertEqual(engine.resolve("libreoffice"), "libreoffice")
+
+    def test_render_removes_stale_pngs_for_the_deck(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            pptx = root / "deck.pptx"
+            preview = root / "preview"
+            preview.mkdir()
+            stale = preview / "deck-99.png"
+            unrelated = preview / "other-01.png"
+            stale.write_bytes(b"stale")
+            unrelated.write_bytes(b"keep")
+            exported = preview / "deck-01.png"
+
+            def export(args):
+                self.assertFalse(stale.exists())
+                exported.write_bytes(b"new")
+                return subprocess.CompletedProcess(args, 0, "", "")
+
+            with mock.patch.object(engine, "resolve",
+                                   return_value="powerpoint"), \
+                    mock.patch.object(engine, "_run_powershell",
+                                      side_effect=export):
+                paths = engine.render_pngs(pptx, preview, "powerpoint")
+
+            self.assertEqual(paths, [str(exported.resolve())])
+            self.assertFalse(stale.exists())
+            self.assertTrue(unrelated.exists())
 
 
 if __name__ == "__main__":

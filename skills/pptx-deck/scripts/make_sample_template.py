@@ -5,7 +5,6 @@ Fictional organization template "Sample Org": 16:9, Yu Gothic theme fonts,
 deep-navy color scheme, one cover + six component sample slides.
 """
 import argparse
-import copy
 from pathlib import Path
 
 from lxml import etree
@@ -239,7 +238,7 @@ def _set_ph_geom(layout, idx, x=None, y=None, w=None, h=None):
     raise RuntimeError(f"layout {layout.name}: ph idx {idx} not found")
 
 
-def _layout_ph_style(layout, idx, sz=None, algn=None):
+def _layout_ph_style(layout, idx, sz=None, algn=None, bold=None, color=None):
     for ph in layout.placeholders:
         if ph.placeholder_format.idx == idx:
             tx = ph._element.find(qn("p:txBody"))
@@ -256,6 +255,18 @@ def _layout_ph_style(layout, idx, sz=None, algn=None):
                 if dr is None:
                     dr = etree.SubElement(lp, qn("a:defRPr"))
                 dr.set("sz", str(sz))
+            if bold is not None or color is not None:
+                dr = lp.find(qn("a:defRPr"))
+                if dr is None:
+                    dr = etree.SubElement(lp, qn("a:defRPr"))
+                if bold is not None:
+                    dr.set("b", "1" if bold else "0")
+                if color is not None:
+                    for fill in dr.findall(qn("a:solidFill")):
+                        dr.remove(fill)
+                    solid = etree.SubElement(dr, qn("a:solidFill"))
+                    scheme = etree.SubElement(solid, qn("a:schemeClr"))
+                    scheme.set("val", color)
             return
     raise RuntimeError(f"layout {layout.name}: ph idx {idx} not found")
 
@@ -566,6 +577,7 @@ def build_minimal_template():
     prs.slide_height = Emu(6858000)
     edit_minimal_theme(prs)
     _widen_content_layouts(prs, ("Title and Content", "Title Only"))
+    _style_minimal_titles(prs)
     title_slide = prs.slides.add_slide(find_layout(prs, "Title Slide"))
     title_slide.placeholders[0].text = "社内問い合わせ窓口の一本化"
     title_slide.placeholders[1].text = "Sample Org"
@@ -606,6 +618,17 @@ def build_minimal_template():
         for run in paragraph.runs:
             set_run_fonts(run, size=14, color=RGBColor(0x20, 0x21, 0x24))
     return prs
+
+
+def _style_minimal_titles(prs):
+    for name in ("Title Slide", "Section Header", "Title Only",
+                 "Title and Content"):
+        layout = find_layout(prs, name)
+        _set_ph_geom(layout, 0, x=Inches(0.5), y=Inches(0.4),
+                     w=Inches(12.33), h=Inches(1.15))
+        _set_ph_anchor(layout, 0, "t")
+        _layout_ph_style(layout, 0, sz=2800, algn="l", bold=True,
+                         color="dk2")
 
 
 def _widen_content_layouts(prs, names):

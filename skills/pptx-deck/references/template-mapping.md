@@ -32,7 +32,9 @@ template-map.json にない component 名はスキルの図解ライブラリか
 }
 ```
 
-canvas を省略すると inventory の候補から `Title Only`、次に `タイトルのみ` を使い、タイトルplaceholder下を描画域にする。palette を省略した色・フォントはテンプレのtheme clrScheme/fontSchemeとmaster clrMapから解決する。role、サイズ、各componentのslotは [components.md](components.md) を参照する。
+`canvas` を省略すると、inventoryの候補から `Title Only`、次に `タイトルのみ` を選び、タイトルplaceholder下を描画域にする。位置や大きさを指定したい場合は、例のように `layout` と `region`（インチ単位の `[x, y, width, height]`）を設定する。canvasを指定しない場合も、既定の描画域は選択したテンプレートのスライドサイズとタイトル位置に合わせて決まる。
+
+paletteとfontを省略した場合は、テンプレートのテーマ色・フォントを使う。componentの色・サイズの既定値とslotは [components.md](components.md) を参照する。
 
 ## スロット型
 

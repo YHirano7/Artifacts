@@ -17,6 +17,10 @@ python scripts/engine.py detect
 ```
 Windows では PowerShell 経由で PowerPoint COM を先に確認し、使えない場合は LibreOffice を探す。`none` の場合は環境を整える。ビルド自体はレンダリング無しでも実行できるが、`--render` / `--thumbs` には利用可能なエンジンが必要。確認済みの環境では `--engine powerpoint` または `--engine libreoffice` を指定でき、明示指定時は別エンジンへフォールバックしない。
 
+- **PowerPoint**: previewは最終表示と一致する。納品PDFは `python scripts/engine.py pdf out.pptx out.pdf --engine powerpoint` で生成する。
+- **LibreOffice**: フォント置換で改行・配置が変わることがある。余白を確保し、テンプレートで使うフォントを確認した上で、完成版をPowerPointで確認してもらう。
+- **none**: 構造buildとQAのみでpreviewは無い。視覚確認が済んでいないことを伝え、PowerPointでの確認を依頼する。
+
 ### 2. ブリーフを作る
 目的・聴衆・欲しい行動・前提（数値の根拠を含む）を短いMarkdownにまとめる。例は `examples/redmine-migration/brief.md`。
 

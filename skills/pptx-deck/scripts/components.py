@@ -1,9 +1,7 @@
 from dataclasses import dataclass
 import math
-import re
 
 import jsonschema
-from lxml import etree
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
@@ -11,20 +9,18 @@ from pptx.oxml.xmlchemy import OxmlElement
 from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 
-from common import (BuildError, CHART_TYPES, GENERATED_MARK, LINE_HEIGHT,
-                    char_units, chart_data, fail, finish_chart, mark_el)
+from common import (CHART_TYPES, GENERATED_MARK, LINE_HEIGHT,
+                    char_units, chart_data, fail, finish_chart, mark_el,
+                    read_theme)
 
 EMU_PER_IN = 914400
-THEME_KEYS = ("dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3",
-              "accent4", "accent5", "accent6", "hlink", "folHlink")
-PALETTE_KEYS = set(THEME_KEYS) | {"tx1", "tx2", "bg1", "bg2"}
 ROLE_DEFAULTS = {
     "primary": "accent1", "highlight": "accent2", "text": "tx1",
-    "surface": "primary", "muted": "text", "line": "bg1",
+    "surface": "bg2", "muted": "text", "line": "bg1",
     "background": "bg1",
 }
-DEFAULT_SIZES = {"heading": 16, "body": 12, "caption": 10,
-                 "number": 36, "min": 9}
+DEFAULT_SIZES = {"heading": 18, "body": 14, "caption": 12,
+                 "number": 40, "min": 10}
 
 
 @dataclass(frozen=True)
@@ -47,23 +43,6 @@ class Component:
     variants: tuple
     slots_schema: dict
     draw: object
-
-
-def _theme_part(master):
-    for rel in master.part.rels.values():
-        if rel.reltype.endswith("/theme"):
-            return rel.target_part
-    fail("template theme part not found")
-
-
-def _rgb_from_theme(element):
-    if element is None or len(element) == 0:
-        return "000000"
-    color = element[0]
-    value = color.get("val") or color.get("lastClr")
-    if value and re.fullmatch(r"[0-9A-Fa-f]{6}", value):
-        return value.upper()
-    return "000000"
 
 
 def _luminance(color, theme_colors):
@@ -94,14 +73,9 @@ def _scheme_ref(key, clr_map):
 
 def resolve_style(prs, tmap):
     master = prs.slide_masters[0]
-    theme = etree.fromstring(_theme_part(master).blob)
-    ns = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
-    clr_scheme = theme.find(".//a:themeElements/a:clrScheme", ns)
-    if clr_scheme is None:
-        fail("template theme has no clrScheme")
+    theme_data = read_theme(prs)
     theme_colors = {
-        key: _rgb_from_theme(clr_scheme.find(f"a:{key}", ns))
-        for key in THEME_KEYS
+        key: value.lstrip("#") for key, value in theme_data["colors"].items()
     }
     clr_map_el = master.element.find(qn("p:clrMap"))
     clr_map = {
@@ -109,7 +83,6 @@ def resolve_style(prs, tmap):
     }
     if clr_map_el is not None:
         clr_map.update(clr_map_el.attrib)
-    clr_map = {key: value for key, value in clr_map.items()}
     palette = tmap.get("style", {}).get("palette", {})
 
     def color_for(role, fallback=None):
@@ -123,12 +96,10 @@ def resolve_style(prs, tmap):
     if "line" not in palette:
         colors["line"] = ColorRef(
             colors["line"].scheme, transforms=(("lumMod", 0.85),))
-    if "surface" not in palette:
-        colors["surface"] = ColorRef(
-            colors["primary"].scheme, colors["primary"].rgb,
-            colors["primary"].transforms + (("lumMod", 0.15),
-                                            ("lumOff", 0.85)))
-    if "muted" not in palette:
+    colors["surface"] = color_for("surface")
+    if "muted" in palette:
+        colors["muted"] = color_for("muted")
+    else:
         colors["muted"] = ColorRef(
             colors["text"].scheme, colors["text"].rgb,
             colors["text"].transforms + (("lumMod", 0.65),
@@ -141,22 +112,17 @@ def resolve_style(prs, tmap):
         (dark, light), key=lambda c: _contrast(
             colors["highlight"], c, theme_colors))
 
-    font_scheme = theme.find(".//a:fontScheme", ns)
-    major = font_scheme.find("a:majorFont", ns) if font_scheme is not None \
-        else None
-    minor = font_scheme.find("a:minorFont", ns) if font_scheme is not None \
-        else None
-
-    def typeface(group, tag):
-        el = group.find(f"a:{tag}", ns) if group is not None else None
-        return el.get("typeface", "") if el is not None else ""
-
+    theme_fonts = theme_data["fonts"]
     overrides = tmap.get("style", {}).get("fonts", {})
     fonts = {
-        "heading_latin": overrides.get("latin") or typeface(major, "latin"),
-        "heading_ea": overrides.get("ea") or typeface(major, "ea"),
-        "body_latin": overrides.get("latin") or typeface(minor, "latin"),
-        "body_ea": overrides.get("ea") or typeface(minor, "ea"),
+        "heading_latin": overrides.get("latin")
+        or theme_fonts["major"].get("latin", ""),
+        "heading_ea": overrides.get("ea")
+        or theme_fonts["major"].get("ea", ""),
+        "body_latin": overrides.get("latin")
+        or theme_fonts["minor"].get("latin", ""),
+        "body_ea": overrides.get("ea")
+        or theme_fonts["minor"].get("ea", ""),
     }
     fonts = {key: value or "Yu Gothic" for key, value in fonts.items()}
     sizes = dict(DEFAULT_SIZES)
@@ -191,6 +157,29 @@ def _write_color(parent, color, tag="a:solidFill"):
     parent.insert(index, fill)
 
 
+def _prepare_shape(shape, w, h, radius=False):
+    style = shape._element.find(qn("p:style"))
+    if style is not None:
+        shape._element.remove(style)
+    if not radius:
+        return
+    geom = shape._element.spPr.find(qn("a:prstGeom"))
+    if geom is None or geom.get("prst") != "roundRect":
+        return
+    av_lst = geom.find(qn("a:avLst"))
+    if av_lst is None:
+        av_lst = OxmlElement("a:avLst")
+        geom.insert(0, av_lst)
+    for child in list(av_lst):
+        if child.get("name") == "adj":
+            av_lst.remove(child)
+    gd = OxmlElement("a:gd")
+    gd.set("name", "adj")
+    gd.set("fmla", f"val {max(1, min(100000, round(
+        0.06 / max(min(w, h), 0.001) * 100000)))}")
+    av_lst.append(gd)
+
+
 def _text_color(run, color):
     rpr = run._r.get_or_add_rPr()
     _write_color(rpr, color)
@@ -210,6 +199,8 @@ def _set_fonts(run, fonts, heading=False):
 
 
 def _box(shape, fill, line=None):
+    _prepare_shape(shape, shape.width / EMU_PER_IN, shape.height / EMU_PER_IN,
+                   shape.auto_shape_type == MSO_SHAPE.ROUNDED_RECTANGLE)
     shape.fill.solid()
     shape.fill.fore_color.rgb = RGBColor(0, 0, 0)
     _write_color(shape._element.spPr, fill)
@@ -224,15 +215,21 @@ def _box(shape, fill, line=None):
         _write_color(line_el, line)
 
 
-def _estimated_height(text, width, size, pad_top=0.05, pad_bottom=0.05):
-    inner_width = max(width - 0.18, 0.05) * EMU_PER_IN
+def _estimated_height(text, width, size, pad_top=0.08, pad_bottom=0.08):
+    is_bulleted = isinstance(text, list)
+    inner_width = max(width - 0.24 - (0.22 if is_bulleted else 0), 0.05) \
+        * EMU_PER_IN
     line_height = size * LINE_HEIGHT / 72 * EMU_PER_IN
     lines = 0
-    for paragraph in str(text).splitlines() or [""]:
+    paragraphs = text if is_bulleted else str(text).splitlines()
+    for paragraph in paragraphs or [""]:
         units = sum(char_units(char) for char in paragraph)
         lines += max(1, math.ceil(
             units * size / 72 * EMU_PER_IN / inner_width - 1e-9))
-    return lines * line_height + (pad_top + pad_bottom) * EMU_PER_IN
+    after = (max(1, len(paragraphs)) * 4 / 72 * EMU_PER_IN
+             if is_bulleted else 0)
+    return lines * line_height + after + (
+        pad_top + pad_bottom) * EMU_PER_IN
 
 
 def fit_size(text, width, height, base, min_size, where):
@@ -240,7 +237,7 @@ def fit_size(text, width, height, base, min_size, where):
         if _estimated_height(text, width, size) <= height * EMU_PER_IN:
             return size
     needed = _estimated_height(text, width, min_size) / EMU_PER_IN
-    chars = max(1, int((width - 0.18) * height * 72 /
+    chars = max(1, int((width - 0.24) * height * 72 /
                        max(min_size * LINE_HEIGHT, 1)))
     fail(f"{where}: text does not fit even at {min_size}pt "
          f"(needs ~{needed:.1f}in, box {height:.1f}in); "
@@ -258,30 +255,37 @@ class DrawContext:
         self.slide = slide
         self.style = style
         self.where = where
+        self.frame = {}
 
     def shape(self, name, x, y, w, h, kind=MSO_SHAPE.RECTANGLE,
               fill=None, line=None, text=None, size=None, color=None,
               bold=False, align=PP_ALIGN.LEFT, heading=False,
-              radius=False):
+              radius=False, anchor=MSO_ANCHOR.TOP):
         if radius:
             kind = MSO_SHAPE.ROUNDED_RECTANGLE
         shape = self.slide.shapes.add_shape(
             kind, Inches(x), Inches(y), Inches(w), Inches(h))
         shape.name = name
+        _prepare_shape(shape, w, h, radius)
         if fill:
             _box(shape, fill, line)
         else:
             shape.fill.background()
-            shape.line.fill.background()
+            if line is None:
+                shape.line.fill.background()
+            else:
+                shape.line.width = Pt(0.75)
+                shape.line.color.rgb = RGBColor(0, 0, 0)
+                _write_color(shape._element.spPr.find(qn("a:ln")), line)
         if text is not None:
             self.text_frame(shape, text, size, color, bold, align, heading,
-                            name)
+                            name, anchor)
         mark_el(shape._element, GENERATED_MARK)
         return shape
 
     def textbox(self, name, x, y, w, h, text, size, color=None, bold=False,
                 align=PP_ALIGN.LEFT, heading=False,
-                anchor=MSO_ANCHOR.MIDDLE, margin=0.06):
+                anchor=MSO_ANCHOR.TOP, margin=0.12):
         shape = self.slide.shapes.add_textbox(
             Inches(x), Inches(y), Inches(w), Inches(h))
         shape.name = name
@@ -291,13 +295,43 @@ class DrawContext:
         shape.text_frame.vertical_anchor = anchor
         shape.text_frame.margin_left = Inches(margin)
         shape.text_frame.margin_right = Inches(margin)
-        shape.text_frame.margin_top = Inches(0.03)
-        shape.text_frame.margin_bottom = Inches(0.03)
+        shape.text_frame.margin_top = Inches(0.08)
+        shape.text_frame.margin_bottom = Inches(0.08)
         self.text_frame(shape, text, size, color, bold, align, heading, name)
         mark_el(shape._element, GENERATED_MARK)
         return shape
 
-    def text_frame(self, shape, text, size, color, bold, align, heading, name):
+    def rich_textbox(self, name, x, y, w, h, runs, align=PP_ALIGN.LEFT,
+                     anchor=MSO_ANCHOR.TOP):
+        shape = self.slide.shapes.add_textbox(
+            Inches(x), Inches(y), Inches(w), Inches(h))
+        shape.name = name
+        shape.fill.background()
+        shape.line.fill.background()
+        frame = shape.text_frame
+        frame.clear()
+        frame.word_wrap = True
+        frame.vertical_anchor = anchor
+        frame.margin_left = Inches(0.12)
+        frame.margin_right = Inches(0.12)
+        frame.margin_top = Inches(0.08)
+        frame.margin_bottom = Inches(0.08)
+        para = frame.paragraphs[0]
+        para.alignment = align
+        para.line_spacing = 1.0
+        para.space_after = Pt(0)
+        for spec in runs:
+            run = para.add_run()
+            run.text = spec["text"]
+            run.font.size = Pt(spec["size"])
+            run.font.bold = spec.get("bold", False)
+            _set_fonts(run, self.style.fonts, spec.get("heading", False))
+            _text_color(run, spec.get("color", self.style.colors["text"]))
+        mark_el(shape._element, GENERATED_MARK)
+        return shape
+
+    def text_frame(self, shape, text, size, color, bold, align, heading, name,
+                   anchor=MSO_ANCHOR.TOP):
         size = fit_size(text, shape.width / EMU_PER_IN,
                         shape.height / EMU_PER_IN,
                         size or self.style.sizes["body"],
@@ -306,16 +340,25 @@ class DrawContext:
         frame = shape.text_frame
         frame.clear()
         frame.word_wrap = True
-        frame.vertical_anchor = MSO_ANCHOR.MIDDLE
-        frame.margin_left = Inches(0.09)
-        frame.margin_right = Inches(0.09)
-        frame.margin_top = Inches(0.04)
-        frame.margin_bottom = Inches(0.04)
-        for index, line in enumerate(str(text).splitlines() or [""]):
+        frame.vertical_anchor = anchor
+        frame.margin_left = Inches(0.12)
+        frame.margin_right = Inches(0.12)
+        frame.margin_top = Inches(0.08)
+        frame.margin_bottom = Inches(0.08)
+        is_bulleted = isinstance(text, list)
+        lines = text if is_bulleted else str(text).splitlines()
+        for index, line in enumerate(lines or [""]):
             para = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
             para.alignment = align
             para.line_spacing = 1.0
-            para.space_after = Pt(0)
+            para.space_after = Pt(4 if is_bulleted else 0)
+            if is_bulleted:
+                ppr = para._p.get_or_add_pPr()
+                ppr.set("marL", str(Inches(0.22)))
+                ppr.set("indent", str(-Inches(0.12)))
+                bu_char = OxmlElement("a:buChar")
+                bu_char.set("char", "•")
+                ppr.append(bu_char)
             run = para.add_run()
             run.text = line
             run.font.size = Pt(size or self.style.sizes["body"])
@@ -420,39 +463,106 @@ def _items_schema(properties, required, minimum, maximum):
     }
 
 
+def _takeaway_height(dc, text, width):
+    return max(0.5, _estimated_height(
+        text, width - 0.28, dc.style.sizes["body"]) / EMU_PER_IN + 0.04)
+
+
 def _draw_frame(dc, region, slots):
     x, y, w, h = region
-    lead_h = 0
-    takeaway_h = 0
+    lead_h = 0.0
     if slots.get("lead"):
-        lead_h = 0.42
+        lead_h = max(0.42, _estimated_height(
+            slots["lead"], w, dc.style.sizes["heading"]) / EMU_PER_IN)
         dc.textbox("Component lead", x, y, w, lead_h, slots["lead"],
                    dc.style.sizes["heading"], dc.style.colors["text"],
                    bold=True, heading=True)
+    top = y + lead_h + (0.12 if lead_h else 0)
+    dc.frame = {
+        "x": x, "y": y, "w": w, "h": h,
+        "takeaway": slots.get("takeaway"),
+    }
+    available_h = max(0.2, y + h - top)
     if slots.get("takeaway"):
-        takeaway_h = 0.56
-        ty = y + h - takeaway_h
-        dc.shape("Component takeaway", x, ty, w, takeaway_h,
-                 fill=dc.style.colors["surface"],
-                 line=dc.style.colors["line"], radius=True)
-        dc.shape("Takeaway accent", x, ty, 0.09, takeaway_h,
-                 fill=dc.style.colors["primary"], line=None)
-        dc.textbox("Takeaway text", x + 0.16, ty + 0.03, w - 0.22,
-                   takeaway_h - 0.06, slots["takeaway"],
-                   dc.style.sizes["body"], dc.style.colors["text"],
-                   bold=True)
-    top = y + lead_h + (0.08 if lead_h else 0)
-    bottom = y + h - takeaway_h - (0.12 if takeaway_h else 0)
-    return x, top, w, max(0.2, bottom - top)
+        available_h = max(
+            0.2, available_h - 0.25 - _takeaway_height(dc, slots["takeaway"], w))
+    return x, top, w, available_h
+
+
+def _finish_frame(dc, bottom):
+    text = dc.frame.get("takeaway")
+    if not text:
+        return
+    x, y, w, h = (dc.frame[key] for key in ("x", "y", "w", "h"))
+    ty = bottom + 0.25
+    th = _takeaway_height(dc, text, w)
+    if ty + th > y + h:
+        th = max(0.5, y + h - ty)
+    dc.shape("Component takeaway", x, ty, w, th,
+             fill=dc.style.colors["surface"], line=dc.style.colors["line"],
+             radius=True)
+    dc.shape("Takeaway accent", x, ty, 0.09, th,
+             fill=dc.style.colors["primary"], line=None)
+    dc.textbox("Takeaway text", x + 0.16, ty, w - 0.22, th, text,
+               dc.style.sizes["body"], dc.style.colors["text"], bold=True)
+
+
+def _text_height(text, width, size, padding=0.22, minimum=0.9):
+    return max(minimum, _estimated_height(text, width, size) / EMU_PER_IN
+               + padding)
 
 
 def _group(dc, els, name, index):
     dc.group(els, f"{name} {index}")
 
 
-def _body_text(value):
-    values = value if isinstance(value, list) else [value]
-    return "\n".join(f"• {line}" for line in values)
+def _panel(dc, prefix, x, y, w, heading, body, fill, line,
+           heading_fill=None, heading_color=None, body_color=None,
+           min_height=0.9, radius=True, heading_size=None, body_size=None):
+    heading_color = heading_color or dc.style.colors["text"]
+    body_color = body_color or dc.style.colors["text"]
+    heading_size = heading_size or dc.style.sizes["heading"]
+    body_size = body_size or dc.style.sizes["body"]
+    heading_h = max(0.34, _estimated_height(
+        heading, w - 0.24, heading_size) / EMU_PER_IN + 0.12) \
+        if heading else 0
+    body_h = max(0.3, _estimated_height(
+        body, w - 0.24, body_size) / EMU_PER_IN + 0.08) if body else 0
+    height = max(min_height, heading_h + body_h
+                 + (0.12 if heading and body else 0.16))
+    els = [dc.shape(f"{prefix} panel", x, y, w, height, fill=fill,
+                    line=line, radius=radius)]
+    if heading and heading_fill is not None:
+        els.append(dc.shape(
+            f"{prefix} heading", x, y, w, heading_h, fill=heading_fill,
+            line=None, text=heading, size=heading_size,
+            color=heading_color, bold=True, heading=True,
+            anchor=MSO_ANCHOR.TOP, radius=radius))
+    elif heading:
+        els.append(dc.textbox(
+            f"{prefix} heading", x + 0.12, y + 0.08, w - 0.24,
+            heading_h - 0.08, heading, heading_size,
+            heading_color, bold=True, heading=True))
+    if body:
+        els.append(dc.textbox(
+            f"{prefix} body", x + 0.12, y + (heading_h or 0.08),
+            w - 0.24, body_h, body, body_size, body_color))
+    return els, height
+
+
+def _line(dc, name, x1, y1, x2, y2, color=None, width=0.75):
+    line = dc.slide.shapes.add_connector(
+        1, Inches(x1), Inches(y1), Inches(x2), Inches(y2))
+    line.name = name
+    line.line.width = Pt(width)
+    ln = line._element.spPr.find(qn("a:ln"))
+    if ln is not None:
+        _write_color(ln, color or dc.style.colors["line"])
+    style = line._element.find(qn("p:style"))
+    if style is not None:
+        line._element.remove(style)
+    mark_el(line._element, GENERATED_MARK)
+    return line
 
 
 def _emphasis(slots, count, where):
@@ -469,65 +579,79 @@ def _draw_cards(dc, region, slots, variant):
     cols = 3 if rows == 2 and len(items) >= 5 else (
         2 if rows == 2 else len(items))
     gap = 0.18
-    cw, ch = (w - gap * (cols - 1)) / cols, (h - gap * (rows - 1)) / rows
+    cw = (w - gap * (cols - 1)) / cols
     emph = _emphasis(slots, len(items), dc.where)
-    body_texts = [_body_text(item["body"]) for item in items]
+    body_texts = [item["body"] for item in items]
+    heading_h = max(_estimated_height(
+        item["heading"], cw - 0.24, dc.style.sizes["heading"]) / EMU_PER_IN
+        + 0.12 for item in items)
+    body_h = max(_estimated_height(
+        body, cw - 0.28, dc.style.sizes["body"]) / EMU_PER_IN + 0.08
+        for body in body_texts)
+    ch = max(0.9, heading_h + body_h + 0.2)
+    if rows * ch + gap * (rows - 1) > h:
+        ch = (h - gap * (rows - 1)) / rows
     body_size = fit_siblings(
-        body_texts, cw - 0.28, ch * 0.58, dc.style.sizes["body"],
+        body_texts, cw - 0.28, max(0.3, ch - heading_h - 0.2),
+        dc.style.sizes["body"],
         dc.style.sizes["min"], f"{dc.where}, items[].body")
     for i, (item, body) in enumerate(zip(items, body_texts), 1):
         col, row = (i - 1) % cols, (i - 1) // cols
         cx, cy = x + col * (cw + gap), y + row * (ch + gap)
         highlight = emph == i
-        fill = dc.style.colors["highlight"] if highlight \
+        line = dc.style.colors["highlight"] if highlight \
+            else dc.style.colors["line"]
+        heading_color = dc.style.colors["highlight"] if highlight \
             else dc.style.colors["primary"]
         els = []
         if variant == "header":
             els.append(dc.shape(f"Card {i} body", cx, cy, cw, ch,
-                                fill=dc.style.colors["surface"],
-                                line=dc.style.colors["line"], radius=True))
-            els.append(dc.shape(
-                f"Card {i} heading", cx, cy, cw, 0.62,
-                fill=fill, line=None, text=item["heading"],
-                size=dc.style.sizes["heading"],
-                color=dc.style.colors["on_highlight" if highlight
-                                      else "on_primary"],
-                bold=True, heading=True, radius=True))
-            els.append(dc.textbox(
-                f"Card {i} copy", cx + 0.12, cy + 0.7, cw - 0.24,
-                ch - 0.78, body, body_size, dc.style.colors["text"]))
-        elif variant == "outline":
-            els.append(dc.shape(f"Card {i} panel", cx, cy, cw, ch,
                                 fill=dc.style.colors["background"],
-                                line=dc.style.colors["line"], radius=True))
-            els.append(dc.shape(f"Card {i} accent", cx, cy, cw, 0.08,
-                                fill=fill, line=None))
-            els.append(dc.textbox(
-                f"Card {i} heading", cx + 0.14, cy + 0.15, cw - 0.28,
-                0.48, item["heading"], dc.style.sizes["heading"], fill,
+                                line=line, radius=True))
+            els.append(dc.shape(
+                f"Card {i} heading", cx, cy, cw, heading_h,
+                fill=dc.style.colors["primary"], line=None,
+                text=item["heading"],
+                size=dc.style.sizes["heading"],
+                color=dc.style.colors["on_primary"],
                 bold=True, heading=True))
             els.append(dc.textbox(
-                f"Card {i} copy", cx + 0.14, cy + 0.7, cw - 0.28,
-                ch - 0.82, body, body_size, dc.style.colors["text"]))
+                f"Card {i} copy", cx + 0.12, cy + heading_h,
+                cw - 0.24, ch - heading_h - 0.08, body, body_size,
+                dc.style.colors["text"]))
+        elif variant == "outline":
+            els, _ = _panel(
+                dc, f"Card {i}", cx, cy, cw, item["heading"], body,
+                dc.style.colors["background"], line,
+                heading_color=heading_color,
+                min_height=ch, body_size=body_size)
+            els.append(dc.shape(
+                f"Card {i} accent", cx + 0.06, cy + 0.06, cw - 0.12, 0.06,
+                fill=dc.style.colors["primary"], line=None))
         else:
             els.append(dc.shape(f"Card {i} panel", cx, cy, cw, ch,
                                 fill=dc.style.colors["surface"],
-                                line=dc.style.colors["line"], radius=True))
+                                line=line, radius=True))
             els.append(dc.shape(
                 f"Card {i} number", cx + 0.14, cy + 0.12, 0.42, 0.42,
-                kind=MSO_SHAPE.OVAL, fill=fill, line=None, text=str(i),
+                kind=MSO_SHAPE.OVAL,
+                fill=dc.style.colors["highlight"] if highlight
+                else dc.style.colors["primary"], line=None, text=str(i),
                 size=dc.style.sizes["caption"],
                 color=dc.style.colors["on_highlight" if highlight
                                       else "on_primary"],
                 bold=True, align=PP_ALIGN.CENTER))
             els.append(dc.textbox(
                 f"Card {i} heading", cx + 0.64, cy + 0.1, cw - 0.78,
-                0.46, item["heading"], dc.style.sizes["heading"],
-                dc.style.colors["text"], bold=True, heading=True))
+                heading_h, item["heading"], dc.style.sizes["heading"],
+                heading_color, bold=True, heading=True))
             els.append(dc.textbox(
                 f"Card {i} copy", cx + 0.16, cy + 0.7, cw - 0.32,
-                ch - 0.82, body, body_size, dc.style.colors["text"]))
+                ch - 0.78, body, body_size, dc.style.colors["text"]))
+        if highlight:
+            els[0].line.width = Pt(2)
         _group(dc, els, "Cards", i)
+    _finish_frame(dc, y + rows * ch + gap * (rows - 1))
 
 
 def _draw_kpi(dc, region, slots, variant):
@@ -535,59 +659,77 @@ def _draw_kpi(dc, region, slots, variant):
     items = slots["items"]
     gap = 0.16
     cw = (w - gap * (len(items) - 1)) / len(items)
+    label_h = max(_estimated_height(
+        item["label"], cw - 0.24, dc.style.sizes["body"]) / EMU_PER_IN
+        + 0.08 for item in items)
+    note_h = max((_estimated_height(
+        item.get("note", ""), cw - 0.24, dc.style.sizes["caption"])
+        / EMU_PER_IN + 0.04) if item.get("note") else 0 for item in items)
+    block_h = max(0.9, 0.06 + 0.84 + 0.1 + label_h
+                  + (0.08 + note_h if note_h else 0.04))
+    if block_h > h:
+        block_h = h
     for i, item in enumerate(items, 1):
         cx = x + (i - 1) * (cw + gap)
         els = []
+        value_runs = [{"text": item["value"],
+                       "size": dc.style.sizes["number"],
+                       "color": dc.style.colors["primary"],
+                       "bold": True, "heading": True}]
+        if item.get("unit"):
+            value_runs.append({
+                "text": f" {item['unit']}",
+                "size": round(dc.style.sizes["number"] * 0.45),
+                "color": dc.style.colors["muted"],
+                "bold": True,
+            })
         if variant == "tiles":
-            els.append(dc.shape(f"KPI {i} tile", cx, y, cw, h,
+            els.append(dc.shape(f"KPI {i} tile", cx, y, cw, block_h,
                                 fill=dc.style.colors["surface"],
                                 line=dc.style.colors["line"], radius=True))
+            els.append(dc.shape(
+                f"KPI {i} accent", cx + 0.06, y + 0.04, cw - 0.12, 0.06,
+                fill=dc.style.colors["primary"], line=None))
+            els.append(dc.rich_textbox(
+                f"KPI {i} value", cx + 0.12, y + 0.1, cw - 0.24, 0.84,
+                value_runs, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE))
             els.append(dc.textbox(
-                f"KPI {i} value", cx + 0.12, y + 0.32, cw - 0.24, 0.85,
-                item["value"], dc.style.sizes["number"],
-                dc.style.colors["primary"], bold=True, align=PP_ALIGN.CENTER))
-            if item.get("unit"):
-                els.append(dc.textbox(
-                    f"KPI {i} unit", cx + 0.12, y + 1.13, cw - 0.24, 0.3,
-                    item["unit"], dc.style.sizes["caption"],
-                    dc.style.colors["muted"], align=PP_ALIGN.CENTER))
-            els.append(dc.textbox(
-                f"KPI {i} label", cx + 0.12, y + 1.55, cw - 0.24, 0.58,
-                item["label"], dc.style.sizes["heading"],
+                f"KPI {i} label", cx + 0.12, y + 0.96, cw - 0.24, label_h,
+                item["label"], dc.style.sizes["body"],
                 dc.style.colors["text"], bold=True, align=PP_ALIGN.CENTER,
                 heading=True))
             if item.get("note"):
                 els.append(dc.textbox(
-                    f"KPI {i} note", cx + 0.12, y + 2.2, cw - 0.24,
-                    min(0.7, h - 2.3), item["note"],
+                    f"KPI {i} note", cx + 0.12,
+                    y + 0.96 + label_h + 0.08, cw - 0.24, note_h,
+                    item["note"],
                     dc.style.sizes["caption"], dc.style.colors["muted"],
                     align=PP_ALIGN.CENTER))
         else:
             if i == 1:
-                els.append(dc.shape("KPI band", x, y, w, h,
-                                    fill=dc.style.colors["primary"],
-                                    line=None, radius=True))
+                els.append(dc.shape("KPI band", x, y, w, block_h,
+                                    fill=dc.style.colors["surface"],
+                                    line=dc.style.colors["line"], radius=True))
             if i > 1:
                 els.append(dc.shape(
-                    f"KPI {i} divider", cx - gap / 2, y + 0.22, 0.01,
-                    h - 0.44, fill=dc.style.colors["on_primary"], line=None))
+                    f"KPI {i} divider", cx - gap / 2, y + 0.12, 0.01,
+                    block_h - 0.24, fill=dc.style.colors["line"], line=None))
+            els.append(dc.rich_textbox(
+                f"KPI {i} value", cx + 0.08, y + 0.08, cw - 0.16, 0.84,
+                value_runs, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE))
             els.append(dc.textbox(
-                f"KPI {i} value", cx + 0.08, y + 0.25, cw - 0.16, 1.05,
-                f"{item['value']} {item.get('unit', '')}".strip(),
-                dc.style.sizes["number"], dc.style.colors["on_primary"],
-                bold=True, align=PP_ALIGN.CENTER))
-            els.append(dc.textbox(
-                f"KPI {i} label", cx + 0.08, y + 1.45, cw - 0.16, 0.65,
-                item["label"], dc.style.sizes["heading"],
-                dc.style.colors["on_primary"], bold=True,
+                f"KPI {i} label", cx + 0.08, y + 0.96, cw - 0.16, label_h,
+                item["label"], dc.style.sizes["body"], dc.style.colors["text"],
+                bold=True,
                 align=PP_ALIGN.CENTER, heading=True))
             if item.get("note"):
                 els.append(dc.textbox(
-                    f"KPI {i} note", cx + 0.08, y + 2.2, cw - 0.16,
-                    min(0.7, h - 2.3), item["note"],
-                    dc.style.sizes["caption"],
-                    dc.style.colors["on_primary"], align=PP_ALIGN.CENTER))
+                    f"KPI {i} note", cx + 0.08, y + 0.96 + label_h + 0.08,
+                    cw - 0.16, note_h, item["note"],
+                    dc.style.sizes["caption"], dc.style.colors["muted"],
+                    align=PP_ALIGN.CENTER))
         _group(dc, els, "KPI", i)
+    _finish_frame(dc, y + block_h)
 
 
 def _draw_process(dc, region, slots, variant):
@@ -598,23 +740,33 @@ def _draw_process(dc, region, slots, variant):
     cw = (w - gap * (n - 1)) / n
     emphasis = _emphasis(slots, n, dc.where)
     label_size = fit_siblings(
-        [step["label"] for step in steps], cw - 0.18, 0.8,
+        [step["label"] for step in steps], cw - 0.18, 0.6,
         dc.style.sizes["body"], dc.style.sizes["min"],
         f"{dc.where}, steps[].label")
-    details = [_body_text(step.get("detail", "")) for step in steps]
+    details = [step.get("detail", "") for step in steps]
+    label_h = max(_estimated_height(
+        step["label"], cw - 0.18, label_size) / EMU_PER_IN + 0.04
+        for step in steps)
     detail_size = fit_siblings(
-        details, cw - 0.18, max(0.55, h - 1.55), dc.style.sizes["caption"],
+        details, cw - 0.18, max(0.4, h - 1.25),
+        dc.style.sizes["body"],
         dc.style.sizes["min"], f"{dc.where}, steps[].detail")
+    detail_h = max((_estimated_height(
+        detail, cw - 0.18, detail_size) / EMU_PER_IN + 0.04)
+        if detail else 0 for detail in details)
     if variant == "circles":
-        cy = y + 0.12
-        diameter = min(0.74, h * 0.18)
+        diameter = min(0.9, max(0.7, h * 0.22))
+        cy = y
+        label_y = cy + diameter + 0.12
+        detail_y = label_y + label_h + 0.04
         for i, step in enumerate(steps, 1):
-            cx = x + (i - 0.5) * (cw + gap) - gap
+            cx = x + (i - 1) * (cw + gap) + (cw - diameter) / 2
             if i < n:
-                dc.shape(f"Process connector {i}", cx + diameter / 2,
-                         cy + diameter / 2 - 0.025,
-                         cw + gap - diameter, 0.05, fill=dc.style.colors["line"],
-                         line=None)
+                next_cx = x + i * (cw + gap) + (cw - diameter) / 2
+                _line(dc, f"Process connector {i}",
+                      cx + diameter, cy + diameter / 2,
+                      next_cx, cy + diameter / 2,
+                      dc.style.colors["line"], 1.5)
             color = dc.style.colors["highlight"] if emphasis == i \
                 else dc.style.colors["primary"]
             els = [dc.shape(
@@ -623,18 +775,20 @@ def _draw_process(dc, region, slots, variant):
                 size=dc.style.sizes["body"],
                 color=dc.style.colors["on_highlight" if emphasis == i
                                       else "on_primary"],
-                bold=True, align=PP_ALIGN.CENTER)]
+                bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)]
             els.append(dc.textbox(
-                f"Process {i} label", x + (i - 1) * (cw + gap), y + 1.0,
-                cw, 0.55, step["label"], label_size,
+                f"Process {i} label", x + (i - 1) * (cw + gap), label_y,
+                cw, label_h, step["label"], label_size,
                 dc.style.colors["text"], bold=True, align=PP_ALIGN.CENTER))
             if step.get("detail"):
                 els.append(dc.textbox(
                     f"Process {i} detail",
-                    x + (i - 1) * (cw + gap) + 0.02, y + 1.6, cw - 0.04,
-                    h - 1.65, _body_text(step["detail"]), detail_size,
-                    dc.style.colors["muted"], align=PP_ALIGN.CENTER))
+                    x + (i - 1) * (cw + gap) + 0.02, detail_y, cw - 0.04,
+                    max(0.3, detail_h), step["detail"],
+                    detail_size, dc.style.colors["muted"],
+                    align=PP_ALIGN.CENTER))
             _group(dc, els, "Process", i)
+        _finish_frame(dc, y + diameter + 0.12 + label_h + detail_h)
         return
     for i, step in enumerate(steps, 1):
         cx = x + (i - 1) * (cw + gap)
@@ -642,40 +796,46 @@ def _draw_process(dc, region, slots, variant):
             else dc.style.colors["primary"]
         if variant == "chevron":
             shape_kind = MSO_SHAPE.CHEVRON
-            node_h = min(1.08, h * 0.28)
+            node_h = min(0.8, max(0.62, h * 0.24))
             els = [dc.shape(
-                f"Process {i} chevron", cx, y + 0.12, cw + 0.08, node_h,
+                f"Process {i} chevron", cx, y, cw + 0.08, node_h,
                 kind=shape_kind, fill=color, line=None,
                 text=step["label"], size=label_size,
                 color=dc.style.colors["on_highlight" if emphasis == i
                                       else "on_primary"],
-                bold=True, align=PP_ALIGN.CENTER)]
+                bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)]
             if step.get("detail"):
                 els.append(dc.textbox(
-                    f"Process {i} detail", cx + 0.04, y + node_h + 0.22,
-                    cw - 0.08, h - node_h - 0.25,
-                    _body_text(step["detail"]), detail_size,
-                    dc.style.colors["muted"], align=PP_ALIGN.CENTER))
+                    f"Process {i} detail", cx + 0.04, y + node_h + 0.15,
+                    cw - 0.08, max(0.3, detail_h), step["detail"],
+                    detail_size, dc.style.colors["muted"]))
         else:
-            node_h = min(1.2, h * 0.32)
-            els = [dc.shape(
-                f"Process {i} box", cx, y + 0.12, cw, node_h,
-                fill=dc.style.colors["surface"], line=color,
-                text=step["label"], size=label_size,
-                color=dc.style.colors["text"], bold=True, align=PP_ALIGN.CENTER,
-                radius=True)]
+            node_h = min(
+                h, max(0.9, label_h + detail_h + 0.28))
+            els = [dc.shape(f"Process {i} box", cx, y, cw, node_h,
+                            fill=dc.style.colors["surface"], line=color,
+                            radius=True)]
+            els.append(dc.textbox(
+                f"Process {i} label", cx + 0.12, y + 0.08, cw - 0.24,
+                label_h, step["label"], label_size,
+                dc.style.colors["text"], bold=True, heading=True))
             if step.get("detail"):
                 els.append(dc.textbox(
-                    f"Process {i} detail", cx + 0.04, y + node_h + 0.18,
-                    cw - 0.08, h - node_h - 0.2,
-                    _body_text(step["detail"]), detail_size,
-                    dc.style.colors["muted"], align=PP_ALIGN.CENTER))
+                    f"Process {i} detail", cx + 0.12,
+                    y + 0.12 + label_h, cw - 0.24,
+                    max(0.3, node_h - label_h - 0.2),
+                    step["detail"], detail_size,
+                    dc.style.colors["text"]))
         _group(dc, els, "Process", i)
         if variant == "arrows" and i < n:
-            dc.shape(f"Process arrow {i}", cx + cw + 0.03, y + 0.45,
-                     gap - 0.04, 0.34, kind=MSO_SHAPE.RIGHT_ARROW,
-                     fill=dc.style.colors["highlight"] if emphasis == i
-                     else dc.style.colors["primary"], line=None)
+            arrow = dc.shape(
+                f"Process arrow {i}", cx + cw + 0.04, y + node_h / 2 - 0.12,
+                0.24, 0.24, kind=MSO_SHAPE.ISOSCELES_TRIANGLE,
+                fill=dc.style.colors["highlight"] if emphasis == i
+                else dc.style.colors["primary"], line=None)
+            arrow.rotation = 90
+    _finish_frame(dc, y + max(0.8, node_h)
+                  + (0.15 + detail_h if variant == "chevron" else 0))
 
 
 def _draw_comparison(dc, region, slots, variant):
@@ -685,104 +845,131 @@ def _draw_comparison(dc, region, slots, variant):
     panel_w = (w - gap) / 2
     emphasis = _emphasis(slots, 2, dc.where)
     panels = (left, right)
+    panel_heights = []
+    for item in panels:
+        body = item["items"]
+        panel_heights.append(_text_height(
+            body, panel_w - 0.34, dc.style.sizes["body"],
+            padding=0.82, minimum=1.35))
+    panel_h = min(h, max(panel_heights))
+    heading_h = 0.5
     for i, item in enumerate(panels, 1):
         px = x + (i - 1) * (panel_w + gap)
-        fill = dc.style.colors["surface"]
-        if variant == "before_after":
-            base = dc.style.colors["muted" if i == 1 else "primary"]
-            fill = ColorRef(
-                base.scheme, base.rgb,
-                base.transforms + (("lumMod", 0.15), ("lumOff", 0.85)))
-        if emphasis == i:
-            fill = ColorRef(dc.style.colors["highlight"].scheme,
-                            dc.style.colors["highlight"].rgb,
-                            (("lumMod", 0.15), ("lumOff", 0.85)))
+        line = dc.style.colors["highlight"] if emphasis == i \
+            else dc.style.colors["line"]
         els = [dc.shape(
-            f"Comparison {i} panel", px, y + 0.08, panel_w, h - 0.16,
-            fill=fill, line=dc.style.colors["line"], radius=True)]
-        header_color = dc.style.colors["primary"] if i == 1 \
-            else dc.style.colors["highlight"]
+            f"Comparison {i} panel", px, y, panel_w, panel_h,
+            fill=dc.style.colors["surface"], line=line, radius=True)]
+        if emphasis == i:
+            els[0].line.width = Pt(2)
+        if variant == "before_after":
+            header_color = dc.style.colors["muted"] if i == 1 \
+                else dc.style.colors["primary"]
+            header_text = dc.style.colors["on_primary"]
+        else:
+            header_color = dc.style.colors["primary"]
+            header_text = dc.style.colors["on_primary"]
+        heading_text_color = dc.style.colors["highlight"] if emphasis == i \
+            else header_text
         els.append(dc.shape(
-            f"Comparison {i} heading", px, y + 0.08, panel_w, 0.66,
+            f"Comparison {i} heading", px, y, panel_w, heading_h,
             fill=header_color, line=None, text=item["heading"],
             size=dc.style.sizes["heading"],
-            color=dc.style.colors["on_primary" if i == 1
-                                  else "on_highlight"],
-            bold=True, heading=True, radius=True))
-        items = "\n".join(f"• {v}" for v in item["items"])
-        size = fit_size(items, panel_w - 0.4, h - 1.0,
+            color=heading_text_color, bold=True, heading=True))
+        items = item["items"]
+        size = fit_size(items, panel_w - 0.34, panel_h - heading_h - 0.2,
                         dc.style.sizes["body"], dc.style.sizes["min"],
                         f"{dc.where}, {'left' if i == 1 else 'right'}.items")
         els.append(dc.textbox(
-            f"Comparison {i} items", px + 0.17, y + 0.88,
-            panel_w - 0.34, h - 1.02, items, size,
+            f"Comparison {i} items", px + 0.17, y + heading_h + 0.08,
+            panel_w - 0.34, panel_h - heading_h - 0.14, items, size,
             dc.style.colors["text"]))
         _group(dc, els, "Comparison", i)
     center_x = x + panel_w + gap / 2
     if variant == "before_after":
-        dc.shape("Comparison transition", center_x - 0.2, y + h * 0.42,
-                 0.4, 0.42, kind=MSO_SHAPE.RIGHT_ARROW,
+        dc.shape("Comparison transition", center_x - 0.2, y + panel_h * 0.42,
+                 0.4, 0.28, kind=MSO_SHAPE.RIGHT_ARROW,
                  fill=dc.style.colors["highlight"], line=None)
     else:
-        dc.shape("Comparison VS", center_x - 0.3, y + h * 0.42, 0.6, 0.6,
+        diameter = 0.72
+        cx, cy = center_x - diameter / 2, y + panel_h * 0.42
+        dc.shape("Comparison VS", cx, cy, diameter, diameter,
                  kind=MSO_SHAPE.OVAL, fill=dc.style.colors["primary"],
-                 line=None, text="VS", size=dc.style.sizes["caption"],
-                 color=dc.style.colors["on_primary"], bold=True,
-                 align=PP_ALIGN.CENTER)
+                 line=None)
+        dc.textbox("Comparison VS label", cx, cy, diameter, diameter,
+                   "VS", dc.style.sizes["caption"],
+                   dc.style.colors["on_primary"], bold=True,
+                   align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+    _finish_frame(dc, y + panel_h)
 
 
 def _draw_matrix(dc, region, slots, variant):
     x, y, w, h = _draw_frame(dc, region, slots)
-    left_pad, bottom_pad, top_pad = 0.75, 0.58, 0.2
+    left_pad, bottom_pad, top_pad = 0.9, 0.95, 0.2
     grid_x, grid_y = x + left_pad, y + top_pad
-    grid_w, grid_h = w - left_pad - 0.14, h - bottom_pad - top_pad
+    grid_w = w - left_pad - 0.14
+    quadrant_h = max(
+        _text_height(quad["items"], grid_w / 2 - 0.24,
+                     dc.style.sizes["body"], padding=0.58, minimum=0.9)
+        + 0.34 for quad in slots["quadrants"])
+    grid_h = min(h - bottom_pad - top_pad, quadrant_h * 2)
     half_w, half_h = grid_w / 2, grid_h / 2
     emphasis = _emphasis(slots, 4, dc.where)
     for i, quad in enumerate(slots["quadrants"], 1):
         col, row = (i - 1) % 2, (i - 1) // 2
         qx, qy = grid_x + col * half_w, grid_y + row * half_h
-        fill = dc.style.colors["highlight"] if emphasis == i \
-            else dc.style.colors["surface"]
+        line = dc.style.colors["highlight"] if emphasis == i \
+            else dc.style.colors["line"]
         els = [dc.shape(
             f"Matrix quadrant {i}", qx + 0.025, qy + 0.025,
-            half_w - 0.05, half_h - 0.05, fill=fill,
-            line=dc.style.colors["line"])]
+            half_w - 0.05, half_h - 0.05,
+            fill=dc.style.colors["surface"],
+            line=line)]
+        if emphasis == i:
+            els[0].line.width = Pt(2)
         els.append(dc.textbox(
-            f"Matrix quadrant {i} title", qx + 0.1, qy + 0.06,
-            half_w - 0.2, 0.38, quad["title"], dc.style.sizes["body"],
-            dc.style.colors["primary"], bold=True, align=PP_ALIGN.CENTER))
+            f"Matrix quadrant {i} title", qx + 0.12, qy + 0.08,
+            half_w - 0.24, 0.38, quad["title"], dc.style.sizes["body"],
+            dc.style.colors["highlight"] if emphasis == i
+            else dc.style.colors["primary"], bold=True))
         if quad["items"]:
-            body = "\n".join(f"• {text}" for text in quad["items"])
-            size = fit_size(body, half_w - 0.24, half_h - 0.56,
-                            dc.style.sizes["caption"], dc.style.sizes["min"],
+            body = quad["items"]
+            size = fit_size(body, half_w - 0.24, half_h - 0.48,
+                            dc.style.sizes["body"], dc.style.sizes["min"],
                             f"{dc.where}, quadrants[{i}].items")
             els.append(dc.textbox(
-                f"Matrix quadrant {i} items", qx + 0.1, qy + 0.46,
-                half_w - 0.2, half_h - 0.52, body, size,
-                dc.style.colors["text"], align=PP_ALIGN.CENTER))
+                f"Matrix quadrant {i} items", qx + 0.12, qy + 0.46,
+                half_w - 0.24, half_h - 0.54, body, size,
+                dc.style.colors["text"]))
         _group(dc, els, "Matrix", i)
-    dc.textbox("Matrix x label", grid_x, y + h - 0.48, grid_w, 0.35,
-               slots["x_axis"]["label"], dc.style.sizes["caption"],
-               dc.style.colors["text"], bold=True, align=PP_ALIGN.CENTER)
-    dc.textbox("Matrix x low", grid_x, y + h - 0.83, half_w, 0.28,
+    _line(dc, "Matrix vertical grid", grid_x + half_w, grid_y,
+          grid_x + half_w, grid_y + grid_h, dc.style.colors["line"])
+    _line(dc, "Matrix horizontal grid", grid_x, grid_y + half_h,
+          grid_x + grid_w, grid_y + half_h, dc.style.colors["line"])
+    dc.textbox("Matrix x low", grid_x, grid_y + grid_h + 0.04, half_w, 0.36,
                slots["x_axis"]["low"], dc.style.sizes["caption"],
                dc.style.colors["muted"])
-    dc.textbox("Matrix x high", grid_x + half_w, y + h - 0.83,
-               half_w, 0.28, slots["x_axis"]["high"],
+    dc.textbox("Matrix x high", grid_x + half_w, grid_y + grid_h + 0.04,
+               half_w, 0.36, slots["x_axis"]["high"],
                dc.style.sizes["caption"], dc.style.colors["muted"],
                align=PP_ALIGN.RIGHT)
-    dc.textbox("Matrix y label", x, grid_y + 0.15, 0.36, grid_h - 0.3,
+    dc.textbox("Matrix x label", grid_x, grid_y + grid_h + 0.43,
+               grid_w, 0.34, slots["x_axis"]["label"],
+               dc.style.sizes["caption"], dc.style.colors["text"],
+               bold=True, align=PP_ALIGN.CENTER)
+    ylab = dc.textbox("Matrix y label", x, grid_y, 0.36, grid_h,
                slots["y_axis"]["label"], dc.style.sizes["caption"],
-               dc.style.colors["text"], bold=True, align=PP_ALIGN.CENTER)
-    ylab = next(sh for sh in dc.slide.shapes if sh.name == "Matrix y label")
-    ylab.rotation = 270
+                dc.style.colors["text"], bold=True, align=PP_ALIGN.CENTER,
+                anchor=MSO_ANCHOR.MIDDLE)
+    ylab.text_frame._txBody.bodyPr.set("vert", "vert270")
     dc.textbox("Matrix y high", x + 0.36, grid_y + 0.05, left_pad - 0.4,
-               0.3, slots["y_axis"]["high"], dc.style.sizes["caption"],
+               0.36, slots["y_axis"]["high"], dc.style.sizes["caption"],
                dc.style.colors["muted"], align=PP_ALIGN.CENTER)
-    dc.textbox("Matrix y low", x + 0.36, grid_y + grid_h - 0.34,
-               left_pad - 0.4, 0.3, slots["y_axis"]["low"],
+    dc.textbox("Matrix y low", x + 0.36, grid_y + grid_h - 0.41,
+               left_pad - 0.4, 0.36, slots["y_axis"]["low"],
                dc.style.sizes["caption"], dc.style.colors["muted"],
                align=PP_ALIGN.CENTER)
+    _finish_frame(dc, grid_y + grid_h + 0.8)
 
 
 def _draw_pyramid(dc, region, slots, variant):
@@ -791,45 +978,63 @@ def _draw_pyramid(dc, region, slots, variant):
     shape_w = w * 0.55
     detail_x = x + shape_w + 0.42
     detail_w = w - shape_w - 0.5
-    row_h = h / len(levels)
+    row_h = min(0.76, (h - 0.04 * (len(levels) - 1)) / len(levels))
     for i, level in enumerate(levels):
         display = i if variant == "pyramid" else len(levels) - i - 1
         frac = (display + 1) / len(levels)
         band_w = shape_w * (0.34 + 0.66 * frac)
         bx = x + (shape_w - band_w) / 2
-        by = y + i * row_h
+        by = y + i * (row_h + 0.04)
         fill = ColorRef(
             dc.style.colors["primary"].scheme,
             dc.style.colors["primary"].rgb,
             (("lumMod", max(0.25, 1 - display * 0.12)),
              ("lumOff", min(0.75, display * 0.12))))
-        kind = MSO_SHAPE.ISOSCELES_TRIANGLE if display == 0 \
-            else MSO_SHAPE.TRAPEZOID
+        kind = (MSO_SHAPE.ISOSCELES_TRIANGLE
+                if variant == "pyramid" and display == 0
+                else MSO_SHAPE.TRAPEZOID)
         els = [dc.shape(
-            f"Level {i + 1}", bx, by + 0.03, band_w, row_h - 0.06,
+            f"Level {i + 1}", bx, by, band_w, row_h,
             kind=kind, fill=fill, line=dc.style.colors["background"],
-            text=level["label"], size=dc.style.sizes["body"],
+            text=level["label"] if variant == "pyramid" else None,
+            size=dc.style.sizes["body"],
             color=dc.style.colors["on_primary"], bold=True,
-            align=PP_ALIGN.CENTER)]
+            align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)]
+        if variant == "funnel":
+            els[0].rotation = 180
+            els.append(dc.textbox(
+                f"Level {i + 1} label", bx + band_w * 0.1, by,
+                band_w * 0.8, row_h, level["label"],
+                dc.style.sizes["body"], dc.style.colors["on_primary"],
+                bold=True, align=PP_ALIGN.CENTER,
+                anchor=MSO_ANCHOR.MIDDLE))
         if level.get("detail"):
-            dc.shape(f"Level {i + 1} leader", bx + band_w, by + row_h / 2,
-                     max(0.1, detail_x - (bx + band_w) - 0.05), 0.015,
-                     fill=dc.style.colors["line"], line=None)
-            els.append(dc.shape(
-                f"Level {i + 1} detail box", detail_x, by + 0.04, detail_w,
-                row_h - 0.08, fill=dc.style.colors["surface"],
-                line=dc.style.colors["line"], text=level["detail"],
-                size=dc.style.sizes["caption"],
-                color=dc.style.colors["text"], radius=True))
+            _line(dc, f"Level {i + 1} leader", bx + band_w,
+                  by + row_h / 2, detail_x - 0.06, by + row_h / 2,
+                  dc.style.colors["line"], 0.75)
+            els.append(dc.textbox(
+                f"Level {i + 1} detail", detail_x, by, detail_w, row_h,
+                level["detail"], dc.style.sizes["body"],
+                dc.style.colors["text"], anchor=MSO_ANCHOR.MIDDLE))
         _group(dc, els, "Pyramid", i + 1)
+    _finish_frame(dc, y + len(levels) * row_h + 0.04 * (len(levels) - 1))
 
 
 def _draw_cycle(dc, region, slots, variant):
     x, y, w, h = _draw_frame(dc, region, slots)
     steps = slots["steps"]
-    cx, cy = x + w / 2, y + h / 2
-    rx, ry = w * 0.36, h * 0.34
-    node_w, node_h = min(2.0, w * 0.2), min(0.9, h * 0.23)
+    node_w = min(2.0, w * 0.2)
+    label_h = max(_estimated_height(
+        step["label"], node_w - 0.24, dc.style.sizes["body"]
+    ) / EMU_PER_IN + 0.03 for step in steps)
+    details = [step.get("detail", "") for step in steps]
+    detail_h = max((_estimated_height(
+        detail, node_w - 0.24, dc.style.sizes["body"]
+    ) / EMU_PER_IN + 0.03) if detail else 0 for detail in details)
+    node_h = max(0.82, label_h + detail_h + (0.28 if detail_h else 0.24))
+    cluster_h = min(h, max(2.8, node_h * 2.6))
+    cx, cy = x + w / 2, y + cluster_h / 2
+    rx, ry = w * 0.36, cluster_h * 0.34
     nodes = []
     for i, step in enumerate(steps):
         angle = -math.pi / 2 + 2 * math.pi * i / len(steps)
@@ -856,40 +1061,51 @@ def _draw_cycle(dc, region, slots, variant):
         arrow.set("w", "med")
         arrow.set("len", "med")
         ln.append(arrow)
+        style = line._element.find(qn("p:style"))
+        if style is not None:
+            line._element.remove(style)
         mark_el(line._element, GENERATED_MARK)
     for i, ((nx, ny), step) in enumerate(zip(nodes, steps), 1):
         color = dc.style.colors["primary"]
         els = [dc.shape(
             f"Cycle node {i}", nx - node_w / 2, ny - node_h / 2,
             node_w, node_h, fill=dc.style.colors["surface"],
-            line=color, text=step["label"],
-            size=dc.style.sizes["body"], color=dc.style.colors["text"],
-            bold=True, align=PP_ALIGN.CENTER, radius=True)]
+            line=color, radius=True)]
+        step_label_h = _estimated_height(
+            step["label"], node_w - 0.24, dc.style.sizes["body"]
+        ) / EMU_PER_IN + 0.03
+        els.append(dc.textbox(
+            f"Cycle node {i} label", nx - node_w / 2 + 0.12,
+            ny - node_h / 2 + 0.12, node_w - 0.24, step_label_h,
+            step["label"], dc.style.sizes["body"], dc.style.colors["text"],
+            bold=True, align=PP_ALIGN.CENTER))
         if step.get("detail"):
-            body = _body_text(step["detail"])
-            size = fit_size(body, node_w - 0.2, node_h * 0.5,
-                            dc.style.sizes["caption"], dc.style.sizes["min"],
+            body = step["detail"]
+            body_h = node_h - 0.24 - label_h
+            size = fit_size(body, node_w - 0.24, body_h,
+                            dc.style.sizes["body"], dc.style.sizes["min"],
                             f"{dc.where}, steps[{i}].detail")
             els.append(dc.textbox(
                 f"Cycle node {i} detail", nx - node_w / 2,
-                ny + node_h * 0.08, node_w, node_h * 0.42, body, size,
+                ny - node_h / 2 + 0.12 + label_h, node_w, body_h, body, size,
                 dc.style.colors["muted"], align=PP_ALIGN.CENTER))
         _group(dc, els, "Cycle", i)
     if slots.get("center"):
-        diameter = min(1.15, h * 0.3)
+        diameter = min(1.15, cluster_h * 0.3)
         dc.shape("Cycle center", cx - diameter / 2, cy - diameter / 2,
                  diameter, diameter, kind=MSO_SHAPE.OVAL,
                  fill=dc.style.colors["primary"], line=None,
                  text=slots["center"], size=dc.style.sizes["caption"],
                  color=dc.style.colors["on_primary"], bold=True,
-                 align=PP_ALIGN.CENTER)
+                 align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+    _finish_frame(dc, y + cluster_h)
 
 
 def _draw_layers(dc, region, slots, variant):
     x, y, w, h = _draw_frame(dc, region, slots)
     layers = slots["layers"]
     gap = 0.12
-    row_h = (h - gap * (len(layers) - 1)) / len(layers)
+    row_h = min(0.7, (h - gap * (len(layers) - 1)) / len(layers))
     label_w = w * 0.25
     for i, layer in enumerate(layers, 1):
         ry = y + (i - 1) * (row_h + gap)
@@ -898,7 +1114,7 @@ def _draw_layers(dc, region, slots, variant):
             fill=dc.style.colors["primary"], line=None,
             text=layer["label"], size=dc.style.sizes["body"],
             color=dc.style.colors["on_primary"], bold=True,
-            align=PP_ALIGN.CENTER, radius=True)]
+            align=PP_ALIGN.CENTER, radius=False, anchor=MSO_ANCHOR.MIDDLE)]
         items = layer["items"]
         item_gap = 0.12
         iw = (w - label_w - 0.2 - item_gap * (len(items) - 1)) / len(items)
@@ -907,10 +1123,11 @@ def _draw_layers(dc, region, slots, variant):
             els.append(dc.shape(
                 f"Layer {i} item {j + 1}", bx, ry, iw, row_h,
                 fill=dc.style.colors["surface"], line=dc.style.colors["line"],
-                text=item, size=dc.style.sizes["caption"],
-                color=dc.style.colors["text"], align=PP_ALIGN.CENTER,
-                radius=True))
+                text=item, size=dc.style.sizes["body"],
+                color=dc.style.colors["text"], align=PP_ALIGN.LEFT,
+                radius=False))
         _group(dc, els, "Layers", i)
+    _finish_frame(dc, y + len(layers) * row_h + gap * (len(layers) - 1))
 
 
 def _draw_roadmap(dc, region, slots, variant):
@@ -921,18 +1138,15 @@ def _draw_roadmap(dc, region, slots, variant):
     timeline_w = w - label_w
     col_w = timeline_w / len(periods)
     header_h = 0.48
-    milestone_h = 0.5 if milestones else 0
+    milestone_h = 0.64 if milestones else 0
     row_y = y + header_h + milestone_h
-    row_h = (h - header_h - milestone_h) / len(tracks)
+    row_h = min(0.66, (h - header_h - milestone_h) / len(tracks))
     for j, period in enumerate(periods):
         dc.shape(f"Roadmap period {j + 1}", x + label_w + j * col_w, y,
                  col_w, header_h, fill=dc.style.colors["primary"], line=None,
                  text=period, size=dc.style.sizes["caption"],
                  color=dc.style.colors["on_primary"], bold=True,
-                 align=PP_ALIGN.CENTER)
-        grid = dc.shape(f"Roadmap grid {j + 1}", x + label_w + j * col_w,
-                        row_y, 0.01, h - header_h - milestone_h,
-                        fill=dc.style.colors["line"], line=None)
+                 align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
     if milestones:
         for i, item in enumerate(milestones, 1):
             mx = x + label_w + (item["at"] - 0.5) * col_w
@@ -941,123 +1155,152 @@ def _draw_roadmap(dc, region, slots, variant):
                      fill=dc.style.colors["highlight"], line=None)
             mw = min(1.6, max(0.8, col_w * 1.8))
             dc.textbox(f"Roadmap milestone {i} label", mx - mw / 2,
-                       y + header_h + 0.2, mw, 0.27, item["label"],
+                       y + header_h + 0.23, mw, 0.38, item["label"],
                        dc.style.sizes["caption"], dc.style.colors["text"],
                        align=PP_ALIGN.CENTER)
+    for i in range(len(tracks)):
+        ry = row_y + i * row_h
+        if i % 2 == 1:
+            dc.shape(f"Roadmap row {i + 1}", x, ry, w, row_h,
+                     fill=dc.style.colors["surface"], line=None)
+    for j in range(len(periods) + 1):
+        gx = x + label_w + j * col_w
+        _line(dc, f"Roadmap grid {j + 1}", gx, row_y, gx,
+              row_y + len(tracks) * row_h, dc.style.colors["line"])
     for i, track in enumerate(tracks, 1):
         ry = row_y + (i - 1) * row_h
         dc.textbox(f"Roadmap track {i}", x + 0.04, ry + 0.03,
                    label_w - 0.1, row_h - 0.06, track["label"],
-                   dc.style.sizes["caption"], dc.style.colors["text"],
-                   bold=True)
+                   dc.style.sizes["body"], dc.style.colors["text"],
+                   bold=True, anchor=MSO_ANCHOR.MIDDLE)
         for j, bar in enumerate(track["bars"], 1):
             bx = x + label_w + (bar["start"] - 1) * col_w + 0.04
             bw = (bar["end"] - bar["start"] + 1) * col_w - 0.08
             fill = dc.style.colors["highlight"] if bar.get("emphasis") \
                 else dc.style.colors["primary"]
             els = [dc.shape(
-                f"Roadmap track {i} bar {j}", bx, ry + 0.08, bw,
-                max(0.2, row_h - 0.16), fill=fill, line=None,
+                f"Roadmap track {i} bar {j}", bx, ry + (row_h - 0.42) / 2,
+                bw, 0.42, fill=fill, line=None,
                 text=bar.get("label", track["label"]),
                 size=dc.style.sizes["caption"],
                 color=dc.style.colors["on_highlight" if bar.get("emphasis")
                                       else "on_primary"],
-                bold=True, align=PP_ALIGN.CENTER, radius=True)]
+                bold=True, align=PP_ALIGN.CENTER, radius=True,
+                anchor=MSO_ANCHOR.MIDDLE)]
             _group(dc, els, "Roadmap", (i - 1) * 10 + j)
+    _finish_frame(dc, row_y + len(tracks) * row_h)
 
 
 def _draw_message(dc, region, slots, variant):
     x, y, w, h = _draw_frame(dc, region, slots)
     supports = slots.get("supports", [])
     if variant == "banner":
-        banner_h = max(1.15, h * 0.38)
-        dc.shape("Message banner", x, y, w, banner_h,
-                 fill=dc.style.colors["primary"], line=None,
-                 text=slots["statement"], size=dc.style.sizes["heading"],
-                 color=dc.style.colors["on_primary"], bold=True,
-                 align=PP_ALIGN.CENTER, heading=True)
+        statement_h = max(0.55, _estimated_height(
+            slots["statement"], w - 0.4, 24) / EMU_PER_IN + 0.08)
+        dc.shape("Message banner accent", x, y, 0.06, statement_h,
+                 fill=dc.style.colors["primary"], line=None)
+        dc.textbox("Message banner", x + 0.2, y, w - 0.2, statement_h,
+                   slots["statement"], 24, dc.style.colors["primary"],
+                   bold=True, heading=True)
+        support_y = y + statement_h + 0.28
+        support_h = 0
         if supports:
             gap = 0.16
             cw = (w - gap * (len(supports) - 1)) / len(supports)
+            support_h = max(_text_height(
+                text, cw - 0.24, dc.style.sizes["body"], padding=0.24,
+                minimum=0.9) for text in supports)
             for i, text in enumerate(supports, 1):
-                support = dc.shape(
-                    f"Message support {i}", x + (i - 1) * (cw + gap),
-                    y + banner_h + 0.24, cw, h - banner_h - 0.34,
-                    fill=dc.style.colors["surface"],
-                    line=dc.style.colors["line"], text=text,
-                    size=dc.style.sizes["body"],
-                    color=dc.style.colors["text"], align=PP_ALIGN.CENTER,
-                    radius=True)
-                _group(dc, [support], "Message", i)
+                els, _ = _panel(
+                    dc, f"Message support {i}",
+                    x + (i - 1) * (cw + gap), support_y, cw,
+                    None, text, dc.style.colors["background"],
+                    dc.style.colors["line"], heading_color=dc.style.colors[
+                        "primary"], min_height=support_h)
+                _group(dc, els, "Message", i)
+        _finish_frame(dc, support_y + support_h if supports
+                      else y + statement_h)
     else:
-        dc.shape("Message quote bar", x, y, 0.13, h,
-                 fill=dc.style.colors["primary"], line=None)
-        statement_h = h * (0.56 if supports else 0.8)
-        dc.textbox("Message quote", x + 0.35, y + 0.12, w - 0.5,
-                   statement_h, slots["statement"],
-                   dc.style.sizes["heading"], dc.style.colors["text"],
-                   bold=True, heading=True)
+        quote_h = 0.52
+        dc.textbox("Message quote mark", x, y, 0.55, quote_h, "“",
+                   40, dc.style.colors["highlight"], bold=True,
+                   align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.TOP)
+        statement_h = max(0.8, _estimated_height(
+            slots["statement"], w - 0.8, 22) / EMU_PER_IN + 0.08)
+        dc.textbox("Message quote", x + 0.52, y, w - 0.7, statement_h,
+                   slots["statement"], 22, dc.style.colors["text"],
+                   bold=True, heading=True, align=PP_ALIGN.CENTER)
+        support_y = y + statement_h + 0.22
+        support_h = 0
         if supports:
-            gap = 0.16
-            cw = (w - 0.5 - gap * (len(supports) - 1)) / len(supports)
-            for i, text in enumerate(supports, 1):
-                support = dc.shape(
-                    f"Message support {i}", x + 0.35 + (i - 1) * (cw + gap),
-                    y + statement_h + 0.16, cw, h - statement_h - 0.28,
-                    fill=dc.style.colors["surface"],
-                    line=dc.style.colors["line"], text=text,
-                    size=dc.style.sizes["caption"],
-                    color=dc.style.colors["text"], align=PP_ALIGN.CENTER,
-                    radius=True)
-                _group(dc, [support], "Message", i)
+            support_h = _estimated_height(
+                supports, w - 0.8, dc.style.sizes["caption"]
+            ) / EMU_PER_IN + 0.08
+            dc.textbox("Message quote support", x + 0.4, support_y,
+                       w - 0.8, support_h, supports,
+                       dc.style.sizes["caption"], dc.style.colors["muted"],
+                       align=PP_ALIGN.CENTER)
+        _finish_frame(dc, support_y + support_h if supports
+                      else y + statement_h)
 
 
 def _draw_checklist(dc, region, slots, variant):
     x, y, w, h = _draw_frame(dc, region, slots)
     items = slots["items"]
     has_meta = any(item.get("owner") or item.get("due") for item in items)
-    header_h = 0.44 if has_meta else 0
+    header_h = 0.38 if has_meta else 0
     if has_meta:
         for name, cx, cw in (
-                ("項目", x + 0.65, w * 0.53),
+                ("項目", x + 0.52, w * 0.53),
                 ("担当", x + w * 0.72, w * 0.15),
                 ("期限", x + w * 0.88, w * 0.11)):
             dc.textbox(f"Checklist heading {name}", cx, y, cw, header_h,
                        name, dc.style.sizes["caption"],
-                       dc.style.colors["muted"], bold=True)
-    row_h = (h - header_h) / len(items)
+                       dc.style.colors["text"], bold=True)
+        _line(dc, "Checklist heading divider", x, y + header_h, x + w,
+              y + header_h, dc.style.colors["line"], 0.75)
+    row_h = min(0.64, (h - header_h) / len(items))
+    text_w = w * (0.52 if has_meta else 0.82)
+    text_size = fit_siblings(
+        [item["text"] for item in items], text_w - 0.06,
+        row_h - 0.04, dc.style.sizes["body"], dc.style.sizes["min"],
+        f"{dc.where}, items[].text")
     for i, item in enumerate(items, 1):
         ry = y + header_h + (i - 1) * row_h
         status = item.get("status", "todo")
         color = dc.style.colors["primary"] if status == "done" \
-            else dc.style.colors["highlight"] if status == "risk" \
-            else dc.style.colors["line"]
+            else dc.style.colors["highlight"] if status == "risk" else None
         icon = "✓" if status == "done" else "!" if status == "risk" else ""
+        icon_size = 0.38
         els = [dc.shape(
-            f"Checklist status {i}", x + 0.05, ry + row_h * 0.2, 0.27,
-            min(0.27, row_h * 0.6), kind=MSO_SHAPE.OVAL, fill=color,
+            f"Checklist status {i}", x + 0.03,
+            ry + (row_h - icon_size) / 2, icon_size, icon_size,
+            kind=MSO_SHAPE.OVAL, fill=color,
             line=dc.style.colors["line"] if status == "todo" else None,
-            text=icon, size=dc.style.sizes["caption"],
+            text=icon or None, size=dc.style.sizes["caption"],
             color=dc.style.colors["on_primary" if status == "done"
                                   else "on_highlight"],
-            bold=True, align=PP_ALIGN.CENTER)]
+            bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)]
         els.append(dc.textbox(
-            f"Checklist item {i}", x + 0.45, ry + 0.02, w * 0.52,
-            row_h - 0.04, item["text"], dc.style.sizes["body"],
-            dc.style.colors["text"]))
+            f"Checklist item {i}", x + 0.42, ry + 0.02, text_w - 0.42,
+            row_h - 0.04, item["text"], text_size,
+            dc.style.colors["text"], anchor=MSO_ANCHOR.MIDDLE))
         if has_meta:
             els.append(dc.textbox(
                 f"Checklist owner {i}", x + w * 0.72, ry + 0.02,
                 w * 0.15, row_h - 0.04, item.get("owner", ""),
-                dc.style.sizes["caption"], dc.style.colors["muted"]))
+                dc.style.sizes["body"], dc.style.colors["text"],
+                anchor=MSO_ANCHOR.MIDDLE))
             els.append(dc.textbox(
                 f"Checklist due {i}", x + w * 0.88, ry + 0.02,
                 w * 0.11, row_h - 0.04, item.get("due", ""),
-                dc.style.sizes["caption"], dc.style.colors["muted"]))
+                dc.style.sizes["body"], dc.style.colors["text"],
+                anchor=MSO_ANCHOR.MIDDLE))
         if i > 1:
-            dc.shape(f"Checklist divider {i}", x, ry, w, 0.01,
-                     fill=dc.style.colors["line"], line=None)
+            _line(dc, f"Checklist divider {i}", x, ry, x + w, ry,
+                  dc.style.colors["line"], 0.75)
         _group(dc, els, "Checklist", i)
+    _finish_frame(dc, y + header_h + len(items) * row_h)
 
 
 def _apply_chart_colors(chart, style):
@@ -1069,49 +1312,63 @@ def _apply_chart_colors(chart, style):
             sp_pr = OxmlElement("c:spPr")
             series._element.append(sp_pr)
         _write_color(sp_pr, color)
+    typeface = style.fonts["body_latin"]
+    for tx_pr in chart._element.iter(qn("c:txPr")):
+        for latin in tx_pr.iter(qn("a:latin")):
+            latin.set("typeface", typeface)
+        for run in list(tx_pr.iter(qn("a:defRPr"))) + list(
+                tx_pr.iter(qn("a:rPr"))) + list(
+                tx_pr.iter(qn("a:endParaRPr"))):
+            run.set("sz", str(style.sizes["body"] * 100))
+            _write_color(run, style.colors["text"])
 
 
 def _draw_chart(dc, region, slots, variant):
     x, y, w, h = _draw_frame(dc, region, slots)
     chart_value = slots["chart"]
+    points = slots.get("points", [])
+    panel_h = max(1.2, len(points) * 0.62 + 0.2) if points else 0
+    chart_h = min(h, max(2.7, panel_h))
     if variant == "full":
+        chart_h = min(h, 3.45)
         frame = dc.slide.shapes.add_chart(
             CHART_TYPES[chart_value["type"]], Inches(x), Inches(y),
-            Inches(w), Inches(h), chart_data(chart_value))
+            Inches(w), Inches(chart_h), chart_data(chart_value))
         frame.name = "Library chart"
         _apply_chart_colors(frame.chart, dc.style)
         finish_chart(frame.chart, chart_value)
         mark_el(frame._element, GENERATED_MARK)
+        _finish_frame(dc, y + chart_h)
         return
-    points = slots.get("points", [])
     chart_w = w * 0.62
     frame = dc.slide.shapes.add_chart(
         CHART_TYPES[chart_value["type"]], Inches(x), Inches(y),
-        Inches(chart_w), Inches(h), chart_data(chart_value))
+        Inches(chart_w), Inches(chart_h), chart_data(chart_value))
     frame.name = "Library chart"
     _apply_chart_colors(frame.chart, dc.style)
     finish_chart(frame.chart, chart_value)
     mark_el(frame._element, GENERATED_MARK)
     panel_x = x + chart_w + 0.12
     panel_w = w - chart_w - 0.12
-    dc.shape("Chart key points panel", panel_x, y, panel_w, h,
+    dc.shape("Chart key points panel", panel_x, y, panel_w, panel_h,
              fill=dc.style.colors["surface"], line=dc.style.colors["line"],
              radius=True)
-    row_h = h / len(points)
+    row_h = (panel_h - 0.12) / len(points)
     for i, point in enumerate(points, 1):
+        ry = y + 0.06 + (i - 1) * row_h
         number = dc.shape(
             f"Chart point {i} number", panel_x + 0.13,
-            y + (i - 1) * row_h + 0.1, 0.34, 0.34,
+            ry + (row_h - 0.34) / 2, 0.34, 0.34,
             kind=MSO_SHAPE.OVAL, fill=dc.style.colors["primary"], line=None,
             text=str(i), size=dc.style.sizes["caption"],
             color=dc.style.colors["on_primary"], bold=True,
-            align=PP_ALIGN.CENTER)
+            align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
         label = dc.textbox(
-            f"Chart point {i}", panel_x + 0.54,
-            y + (i - 1) * row_h + 0.04, panel_w - 0.66,
-            row_h - 0.06, point, dc.style.sizes["caption"],
-            dc.style.colors["text"])
+            f"Chart point {i}", panel_x + 0.54, ry + 0.02,
+            panel_w - 0.66, row_h - 0.04, point,
+            dc.style.sizes["body"], dc.style.colors["text"])
         _group(dc, [number, label], "Chart", i)
+    _finish_frame(dc, y + chart_h)
 
 
 def _draw_component(name, dc, region, slots, variant):
