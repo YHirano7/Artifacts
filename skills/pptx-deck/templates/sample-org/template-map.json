@@ -1,0 +1,101 @@
+{
+  "template": "template.pptx",
+  "slide_size": [13.333, 7.5],
+  "placeholder_markers": ["〇〇", "サンプル", "ここに", "Lorem", "xxx"],
+  "components": {
+    "title": {
+      "kind": "structural",
+      "source": {"layout": "Title Slide"},
+      "slots": {
+        "title": {"type": "text", "target": 0, "required": true},
+        "subtitle": {"type": "text", "target": 1}
+      },
+      "notes_instructions": "表紙。タイトルとサブタイトル（組織名・日付など）を入れる。"
+    },
+    "toc": {
+      "kind": "structural",
+      "source": {"sample_slide": 2},
+      "slots": {
+        "title": {"type": "text", "target": "Title", "required": true},
+        "items": {"type": "list", "target": "TocBody", "required": true}
+      },
+      "notes_instructions": "目次。items は1項目1段落で、番号は自動採番。"
+    },
+    "divider": {
+      "kind": "structural",
+      "source": {"layout": "Section Header"},
+      "slots": {
+        "title": {"type": "text", "target": 0, "required": true}
+      },
+      "notes_instructions": "セクション区切り。タイトルは「01 背景と目的」のように番号付きで。"
+    },
+    "bullets": {
+      "kind": "content",
+      "source": {"layout": "Title and Content"},
+      "slots": {
+        "title": {"type": "text", "target": 0, "required": true},
+        "body": {"type": "list", "target": 1, "required": true}
+      },
+      "notes_instructions": "箇条書きスライド。title は主張1文、body は1項目1段落。"
+    },
+    "two_column": {
+      "kind": "content",
+      "source": {"sample_slide": 6},
+      "slots": {
+        "title": {"type": "text", "target": "Title", "required": true},
+        "left_heading": {"type": "text", "target": "LeftHeading", "required": true},
+        "left": {"type": "list", "target": "LeftBody", "required": true},
+        "right_heading": {"type": "text", "target": "RightHeading", "required": true},
+        "right": {"type": "list", "target": "RightBody", "required": true}
+      },
+      "notes_instructions": "2段比較。left/right は1項目1段落。"
+    },
+    "table": {
+      "kind": "content",
+      "source": {"sample_slide": 3},
+      "slots": {
+        "title": {"type": "text", "target": "Title", "required": true},
+        "table": {"type": "table", "target": "DataTable", "required": true}
+      },
+      "notes_instructions": "表。列数・行数は内容に合わせて増減する。col_widths で列幅比を指定できる。"
+    },
+    "orgchart": {
+      "kind": "content",
+      "source": {"sample_slide": 4},
+      "slots": {
+        "title": {"type": "text", "target": "Title", "required": true},
+        "tree": {"type": "orgchart", "target": "OrgRegion", "required": true,
+                 "node_prototype": "OrgNode", "connector_color": "accent1"}
+      },
+      "notes_instructions": "組織図。階層は最大3段、箱が収まらないほど葉が多い場合は分割。"
+    },
+    "timeline": {
+      "kind": "content",
+      "source": {"sample_slide": 5},
+      "slots": {
+        "title": {"type": "text", "target": "Title", "required": true},
+        "steps": {"type": "timeline", "target": "TimelineRegion", "required": true,
+                  "node_prototype": "TimelineStep"}
+      },
+      "notes_instructions": "時系列。steps は label/period/detail。detail は1行で短く。"
+    },
+    "chart": {
+      "kind": "content",
+      "source": {"sample_slide": 8},
+      "slots": {
+        "title": {"type": "text", "target": "Title", "required": true},
+        "chart": {"type": "chart", "target": "DataChart", "required": true}
+      },
+      "notes_instructions": "グラフ。データだけ差し替える。種類はテンプレの縦棒のまま（type を変えるとエラー）。"
+    },
+    "closing": {
+      "kind": "structural",
+      "source": {"sample_slide": 7},
+      "slots": {
+        "title": {"type": "text", "target": "Title", "required": true},
+        "items": {"type": "list", "target": "ClosingBody", "required": true}
+      },
+      "notes_instructions": "まとめ。承認してほしい事項や次の一手を箇条書きで。"
+    }
+  }
+}

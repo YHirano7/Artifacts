@@ -1,0 +1,63 @@
+name: pptx-deck
+
+on:
+  push:
+    paths:
+      - "skills/pptx-deck/**"
+      - ".github/workflows/pptx-deck.yml"
+  pull_request:
+    paths:
+      - "skills/pptx-deck/**"
+      - ".github/workflows/pptx-deck.yml"
+  workflow_dispatch:
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install LibreOffice + CJK fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libreoffice-impress fonts-noto-cjk
+      - name: Install Python deps
+        run: pip install -r skills/pptx-deck/scripts/requirements.txt
+      - name: Unit tests
+        working-directory: skills/pptx-deck
+        run: python -m unittest discover -s tests -v
+      - name: Inventory on freshly generated template
+        working-directory: skills/pptx-deck
+        run: |
+          mkdir -p /tmp/tpl /tmp/out
+          python scripts/make_sample_template.py -o /tmp/tpl/template.pptx
+          python scripts/inventory.py /tmp/tpl/template.pptx \
+            --json /tmp/tpl/inventory.json --thumbs /tmp/tpl/thumbs
+      - name: Build example deck
+        working-directory: skills/pptx-deck
+        run: |
+          python scripts/build.py \
+            --deck examples/redmine-migration/deck.json \
+            --map templates/sample-org/template-map.json \
+            -o /tmp/out/redmine-migration.pptx \
+            --strict
+      - name: QA + render
+        working-directory: skills/pptx-deck
+        run: |
+          python scripts/qa.py /tmp/out/redmine-migration.pptx \
+            --deck examples/redmine-migration/deck.json \
+            --map templates/sample-org/template-map.json \
+            --render /tmp/out/preview --report /tmp/out/report.json \
+            --build-report /tmp/out/redmine-migration.pptx.build-report.json
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pptx-deck-artifacts
+          path: |
+            /tmp/out/redmine-migration.pptx
+            /tmp/out/preview/*.png
+            /tmp/out/report.json
+            /tmp/out/redmine-migration.pptx.build-report.json

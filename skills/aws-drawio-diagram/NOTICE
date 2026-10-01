@@ -1,0 +1,44 @@
+aws-drawio-diagram (reorganized)
+
+This skill is licensed under the Apache License, Version 2.0 (see LICENSE).
+It is a modified version of:
+
+  aws-drawio-diagram
+  https://github.com/sagochiko/aws-drawio-diagram-skill
+  (commit df395660b64afd37364468f6fc9e439e23319901)
+  Copyright 2026 sagochiko
+
+The NOTICE file of that work reads, in part:
+
+  It is derived from the two works below, both licensed under the Apache
+  License, Version 2.0.
+
+  1. The drawio skill in the Claude Code plugin of
+     https://github.com/jgraph/drawio-mcp (plugins/claude-code),
+     Copyright 2025 JGraph Ltd. That repository has no NOTICE file.
+
+  2. The aws-architecture-diagram skill in the deploy-on-aws plugin of
+     https://github.com/awslabs/agent-plugins.
+     The NOTICE file of that repository reads:
+
+     Agent Plugins for AWS
+     Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+Changes made in this version (2026-09-27):
+
+- SKILL.md was rewritten for use with a highly capable model (Claude
+  Opus 5.5): rationale paragraphs, numeric spacing formulas, instructions
+  to write the XML in several chunks and to keep work files out of /tmp,
+  and forceful trigger wording in the description were removed. The
+  layout, icon, label, edge and decoration rules and the draw.io
+  pitfalls were kept as short bullet lists.
+- The Internet Gateway rule was changed: the IGW sits above the AZ
+  frames in line with the ALB, and the inbound request path is drawn
+  through it (CloudFront -> IGW -> ALB), with outbound traffic drawn
+  ECS -> NAT Gateway -> IGW. The original placed the IGW directly above
+  the ALB, which blocked the ALB's top-center entry point.
+- references/cli.md and references/edit.md were merged into SKILL.md.
+- references/styles.md was condensed into tables; the style strings,
+  category colors and icon names are unchanged.
+
+This skill is not an official AWS or draw.io product.
