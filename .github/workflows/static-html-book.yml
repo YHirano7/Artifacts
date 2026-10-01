@@ -29,4 +29,6 @@ jobs:
         run: |
           python scripts/build.py --book template --out /tmp/site
           python scripts/check.py --site /tmp/site --strict
+          python scripts/build.py --book template --format single --out /tmp/single
+          python scripts/check.py --site /tmp/single --strict
           python scripts/public_check.py --book template

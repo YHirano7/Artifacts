@@ -67,6 +67,69 @@ class TemplateBookTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("WARNING", r.stdout)  # ブロックリスト未指定の警告
 
+    def test_single_format_build(self):
+        r = run([SCRIPTS / "build.py", "--book", TEMPLATE, "--format", "single",
+                 "--out", self.tmp / "single"], TEMPLATE)
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        single = self.tmp / "single"
+        self.assertTrue((single / "index.html").is_file())
+        self.assertTrue((single / "images" / "ch01-book-structure.png").is_file())
+        self.assertFalse((single / "assets").exists())
+        doc = (single / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn('<link rel="stylesheet"', doc)
+        self.assertNotIn('<script src=', doc)
+        self.assertIn('id="ch-01-introduction"', doc)
+        self.assertIn('id="top"', doc)
+        self.assertNotIn('href="chapters/', doc)
+        self.assertNotIn('href="../index.html"', doc)
+        r = run([SCRIPTS / "check.py", "--site", single, "--strict"], TEMPLATE)
+        self.assertEqual(r.returncode, 0, r.stdout)
+
+    def test_single_format_rewrites_links(self):
+        book = self.tmp / "book-links"
+        shutil.copytree(TEMPLATE, book)
+        ch2 = book / "src" / "chapters" / "02-writing-chapters.md"
+        ch2.write_text(ch2.read_text(encoding="utf-8")
+                       + "\n[第1章](01-introduction.html) と [節](01-introduction.html#s1-1) へのリンク。\n",
+                       encoding="utf-8")
+        single = self.tmp / "single-links"
+        r = run([SCRIPTS / "build.py", "--book", book, "--format", "single",
+                 "--out", single], book)
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        doc = (single / "index.html").read_text(encoding="utf-8")
+        self.assertIn('href="#ch-01-introduction"', doc)
+        self.assertIn('href="#s1-1"', doc)
+
+    def test_single_format_takes_sidebar_and_footer_from_chapter_template(self):
+        book = self.tmp / "book-brand"
+        shutil.copytree(TEMPLATE, book)
+        tpl = book / "src" / "templates" / "chapter.html"
+        t = tpl.read_text(encoding="utf-8")
+        t = t.replace("<span class=\"mini-cover-title\">{{mini_cover_title}}</span>",
+                      "<span class=\"mini-cover-title\">ZZ<br>QQ</span>")
+        t = t.replace("{{footer_note_html}}",
+                      '<p class="footer-note">custom-note</p>')
+        tpl.write_text(t, encoding="utf-8")
+        single = self.tmp / "single-brand"
+        r = run([SCRIPTS / "build.py", "--book", book, "--format", "single",
+                 "--out", single], book)
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        doc = (single / "index.html").read_text(encoding="utf-8")
+        self.assertIn("ZZ<br>QQ", doc)
+        self.assertIn("custom-note", doc)
+
+    def test_single_format_rejects_unknown_relative_link(self):
+        book = self.tmp / "book-badlink"
+        shutil.copytree(TEMPLATE, book)
+        ch2 = book / "src" / "chapters" / "02-writing-chapters.md"
+        ch2.write_text(ch2.read_text(encoding="utf-8")
+                       + "\n[サンプル](../samples/x.txt)\n",
+                       encoding="utf-8")
+        r = run([SCRIPTS / "build.py", "--book", book, "--format", "single",
+                 "--out", self.tmp / "single-bad"], book)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("unsupported relative link", r.stderr)
+
     def test_code_fence_variants(self):
         """```yaml:file と ``` yaml の両方がコードブロックになる。"""
         book = self.tmp / "book"
