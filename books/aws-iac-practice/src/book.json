@@ -1,0 +1,20 @@
+{
+  "title": "AWSで学ぶ Infrastructure as Code 実践入門",
+  "subtitle": "CloudFormation と CDK の基本から、KMS・mTLS・Codeシリーズを使った実務のサンプルまで",
+  "lang": "ja",
+  "updated": "2026-09-29",
+  "description_file": "about.md",
+  "chapters": [
+    {"file": "01-introduction.md", "slug": "01-introduction", "title": "はじめに：この本で身につくこと", "summary": "対象読者、前提知識、この本の読み進め方とサンプルコードの使い方を説明します。"},
+    {"file": "02-what-is-iac.md", "slug": "02-what-is-iac", "title": "IaCとは何か：手作業の何が問題なのか", "summary": "コンソール操作で起きる事故を出発点に、IaC が解決することと解決しないことを整理します。"},
+    {"file": "03-aws-iac-tools.md", "slug": "03-aws-iac-tools", "title": "AWSのIaCツールを見渡す", "summary": "CloudFormation、CDK、SAM、Terraform の関係と、どれを選ぶかの判断軸をまとめます。"},
+    {"file": "04-cloudformation-basics.md", "slug": "04-cloudformation-basics", "title": "CloudFormationの基本を押さえる", "summary": "テンプレート・スタック・変更セットの考え方を、S3 バケットのテンプレートで確かめます。"},
+    {"file": "05-cdk-basics.md", "slug": "05-cdk-basics", "title": "AWS CDKでインフラをプログラミングする", "summary": "Construct の階層、synth と deploy、ブートストラップ、テストの書き方を学びます。"},
+    {"file": "06-iam-as-code.md", "slug": "06-iam-as-code", "title": "IAMをコードで設計する", "summary": "最小権限を IaC で表現する方法と、ポリシー評価のしくみ、よくある落とし穴を扱います。"},
+    {"file": "07-kms-key-management.md", "slug": "07-kms-key-management", "title": "実践1：KMSの鍵をIaCで管理する", "summary": "対称キーと署名用の非対称キーを作り、キーポリシーで管理者と利用者を分けます。"},
+    {"file": "08-mtls-cert-issuer.md", "slug": "08-mtls-cert-issuer", "title": "実践2：mTLS用クライアント証明書を発行するLambda", "summary": "KMS を CA の鍵として使い、証明書を発行する Lambda と mTLS の API をまとめて構築します。"},
+    {"file": "09-code-pipeline.md", "slug": "09-code-pipeline", "title": "実践3：CodeシリーズでIaCのデプロイを自動化する", "summary": "CodeCommit・CodeBuild・CodePipeline で、テスト・変更セット・承認を経てデプロイする流れを作ります。"},
+    {"file": "10-operations-design.md", "slug": "10-operations-design", "title": "運用で困らないIaCの設計", "summary": "スタック分割、ドリフト、削除保護、シークレット管理、コストなど、運用で効く設計の勘所をまとめます。"},
+    {"file": "11-next-steps.md", "slug": "11-next-steps", "title": "おわりに：次に学ぶこと", "summary": "この本の内容を振り返り、実務で次に取り組むテーマと学習リソースを紹介します。"}
+  ]
+}

@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IAMをコードで設計する | AWSで学ぶ Infrastructure as Code 実践入門</title>
+<meta name="description" content="最小権限を IaC で表現する方法と、ポリシー評価のしくみ、よくある落とし穴を扱います。">
+<link rel="stylesheet" href="../assets/book.css">
+<script>document.documentElement.className += " js";</script>
+<script src="../assets/book.js" defer></script>
+</head>
+<body class="page-chapter" data-chapter="6">
+<a class="skip-link" href="#main">本文へスキップ</a>
+<input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="チャプター一覧を開閉">
+<header class="topbar">
+  <label for="nav-toggle" class="menu-btn" title="チャプター一覧"><span class="menu-icon" aria-hidden="true"></span><span class="menu-text">チャプター</span></label>
+  <a class="topbar-title" href="../index.html">AWSで学ぶ Infrastructure as Code 実践入門</a>
+  <span class="topbar-chapter" id="topbar-chapter">Chapter 06</span>
+</header>
+<div class="book-layout">
+  <aside class="book-sidebar" id="sidebar" aria-label="チャプター一覧">
+    <a class="side-book" href="../index.html">
+      <span class="mini-cover" aria-hidden="true"><span class="mini-cover-title">AWS<br>IaC</span></span>
+      <span class="side-book-title">AWSで学ぶ Infrastructure as Code 実践入門</span>
+    </a>
+    <nav>
+      <ol class="chapter-list">
+<li><a href="01-introduction.html"><span class="ch-no">1</span><span class="ch-title">はじめに：この本で身につくこと</span></a></li>
+<li><a href="02-what-is-iac.html"><span class="ch-no">2</span><span class="ch-title">IaCとは何か：手作業の何が問題なのか</span></a></li>
+<li><a href="03-aws-iac-tools.html"><span class="ch-no">3</span><span class="ch-title">AWSのIaCツールを見渡す</span></a></li>
+<li><a href="04-cloudformation-basics.html"><span class="ch-no">4</span><span class="ch-title">CloudFormationの基本を押さえる</span></a></li>
+<li><a href="05-cdk-basics.html"><span class="ch-no">5</span><span class="ch-title">AWS CDKでインフラをプログラミングする</span></a></li>
+<li><a href="06-iam-as-code.html" aria-current="page"><span class="ch-no">6</span><span class="ch-title">IAMをコードで設計する</span></a></li>
+<li><a href="07-kms-key-management.html"><span class="ch-no">7</span><span class="ch-title">実践1：KMSの鍵をIaCで管理する</span></a></li>
+<li><a href="08-mtls-cert-issuer.html"><span class="ch-no">8</span><span class="ch-title">実践2：mTLS用クライアント証明書を発行するLambda</span></a></li>
+<li><a href="09-code-pipeline.html"><span class="ch-no">9</span><span class="ch-title">実践3：CodeシリーズでIaCのデプロイを自動化する</span></a></li>
+<li><a href="10-operations-design.html"><span class="ch-no">10</span><span class="ch-title">運用で困らないIaCの設計</span></a></li>
+<li><a href="11-next-steps.html"><span class="ch-no">11</span><span class="ch-title">おわりに：次に学ぶこと</span></a></li>
+      </ol>
+    </nav>
+  </aside>
+  <label for="nav-toggle" class="scrim" aria-hidden="true"></label>
+  <main id="main" class="book-main" tabindex="-1">
+    <article class="chapter-card">
+      <header class="chapter-head">
+        <p class="chapter-label">Chapter 06</p>
+        <h1 class="chapter-title">IAMをコードで設計する</h1>
+        <p class="chapter-meta">読了目安 約9分</p>
+        <details class="toc-inline">
+          <summary>このチャプターの目次</summary>
+<ol class="toc"><li><a href="#s6-1">この章で分かること</a></li><li><a href="#s6-2">なぜ IAM を IaC で管理するのか</a></li><li><a href="#s6-3">ポリシー評価の基本</a></li><li><a href="#s6-4">信頼ポリシーと権限ポリシー</a></li><li><a href="#s6-5">CDK で最小権限を書く</a></li><li><a href="#s6-6">よくある失敗と防ぎ方</a><ol><li><a href="#s6-7">Resource: &quot;*&quot; と Action: &quot;*&quot;</a></li><li><a href="#s6-8">広すぎる iam:PassRole</a></li><li><a href="#s6-9">信頼ポリシーの条件漏れ</a></li></ol></li><li><a href="#s6-10">コードで権限を検査する</a></li><li><a href="#s6-11">まとめ</a></li><li><a href="#s6-12">確認問題</a></li></ol>
+        </details>
+      </header>
+      <div class="chapter-body znc">
+<h2 id="s6-1">この章で分かること</h2>
+<ul>
+<li>IAM ポリシーがどう評価され、アクセスが許可・拒否されるのか</li>
+<li>「信頼ポリシー」と「権限ポリシー」の違い</li>
+<li>CDK の <code>grant</code> メソッドを使って、最小権限をコードで表現する方法</li>
+<li>IaC で IAM を書くときに起きがちな失敗と、その防ぎ方</li>
+</ul>
+<h2 id="s6-2">なぜ IAM を IaC で管理するのか</h2>
+<p>IAM は AWS のあらゆる操作の入り口です。権限が広すぎれば事故や攻撃の被害が大きくなり、狭すぎればアプリが動きません。そして、権限の設定は後から見直しにくいものです。</p>
+<p>コンソールで IAM を管理していると、「とりあえず動かすために付けた権限」が残り続けます。誰がなぜ付けたのか分からないので、外すのも怖くなります。IaC で管理すれば、権限の追加はプルリクエストになり、理由がレビューとコミットに残ります。さらに、ポリシーをテストで検査することもできます。</p>
+<h2 id="s6-3">ポリシー評価の基本</h2>
+<p>まず、AWS がアクセスを許可するか拒否するかをどう決めているのかを押さえましょう。細かい規則はたくさんありますが、一つのアカウントの中で考える限り、次の三つを覚えておけば大半の場面で判断できます。</p>
+<ol>
+<li><strong>何も書かれていなければ拒否</strong>（暗黙の拒否）。IAM は「許可したものだけ通す」仕組みです。</li>
+<li><strong>どこかに <code>Allow</code> があれば許可の候補になる</strong>。IAM ロールに付けたポリシー（アイデンティティベースのポリシー）か、S3 バケットポリシーのようなリソース側のポリシー（リソースベースのポリシー）のどちらかで許可されている必要があります。</li>
+<li><strong>一つでも <code>Deny</code> があれば必ず拒否</strong>（明示的な拒否）。どれだけ <code>Allow</code> があっても、<code>Deny</code> が優先します。</li>
+</ol><figure class="fig"><img src="../images/ch06-iam-evaluation.png" alt="IAMポリシーの評価の流れ：明示的なDenyが最優先で、Allowがなければ暗黙の拒否になる" loading="lazy" width="1280" height="720"><figcaption>IAMポリシーの評価の流れ：明示的なDenyが最優先で、Allowがなければ暗黙の拒否になる</figcaption></figure><p>実際には、Organizations の SCP（サービスコントロールポリシー）やアクセス許可の境界（permissions boundary）も評価に加わります。これらは「上限」を決めるもので、ここで許可されていない操作は、ロールのポリシーで <code>Allow</code> しても実行できません。</p><aside class="msg msg-info"><div class="msg-body"><p>KMS はこの規則の例外です。KMS の鍵は、<strong>キーポリシーで許可されていない限り、IAM ポリシーだけでは使えません</strong>。キーポリシーに「IAM ポリシーでの許可を有効にする」ステートメントがあって初めて、IAM ポリシーが効くようになります。7章で詳しく見ます。</p></div></aside><h2 id="s6-4">信頼ポリシーと権限ポリシー</h2>
+<p>IAM ロールには、性質の違う二種類のポリシーが付きます。混同しやすいので、ここで整理しておきます。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>種類</th>
+<th>答える問い</th>
+<th>例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>信頼ポリシー（trust policy）</td>
+<td><strong>誰が</strong> このロールを引き受けられるか</td>
+<td>Lambda サービスがこのロールを使ってよい</td>
+</tr>
+<tr>
+<td>権限ポリシー（permissions policy）</td>
+<td>このロールで <strong>何が</strong> できるか</td>
+<td>特定のバケットからオブジェクトを読める</td>
+</tr>
+</tbody>
+</table></div>
+<p>Lambda 関数用のロールなら、信頼ポリシーには「<code>lambda.amazonaws.com</code> が <code>sts:AssumeRole</code> できる」と書き、権限ポリシーには関数が必要とする操作だけを書きます。</p><div class="code-block"><div class="code-file">信頼ポリシーの例</div><pre class="hl"><code class="language-json"><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;Version&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2012-10-17&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;Statement&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;Effect&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Allow&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;Principal&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Service&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;lambda.amazonaws.com&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">      </span><span class="nt">&quot;Action&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sts:AssumeRole&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</code></pre></div><h2 id="s6-5">CDK で最小権限を書く</h2>
+<p>CDK では、ポリシーの JSON を手で書く代わりに、リソースが持つ <code>grant</code> 系のメソッドを使うのが基本です。</p><div class="code-block"><div class="code-file">grant の例</div><pre class="hl"><code class="language-ts"><span class="kd">const</span><span class="w"> </span><span class="nx">role</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">iam</span><span class="p">.</span><span class="nx">Role</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;ReportReaderRole&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">assumedBy</span><span class="o">:</span><span class="w"> </span><span class="kt">new</span><span class="w"> </span><span class="nx">iam</span><span class="p">.</span><span class="nx">ServicePrincipal</span><span class="p">(</span><span class="s1">&#39;lambda.amazonaws.com&#39;</span><span class="p">),</span>
+<span class="p">});</span>
+
+<span class="c1">// バケットの読み取り権限だけを付ける</span>
+<span class="nx">reportBucket</span><span class="p">.</span><span class="nx">grantRead</span><span class="p">(</span><span class="nx">role</span><span class="p">);</span>
+</code></pre></div><p><code>grantRead</code> は、<code>s3:GetObject*</code>・<code>s3:GetBucket*</code>・<code>s3:List*</code> を、そのバケットとその中のオブジェクトだけに限定して許可するポリシーを生成します。バケットが KMS の鍵で暗号化されていれば、復号に必要な <code>kms:Decrypt</code> も自動で追加されます。ARN を手で組み立てる必要がないので、書き間違いも防げます。</p>
+<p><code>grant</code> で表せない権限は、<code>addToPolicy</code> や <code>addToRolePolicy</code> で明示的に書きます。このときも、<code>actions</code> と <code>resources</code> はできるだけ絞ります。</p><div class="code-block"><div class="code-file">明示的に書く例</div><pre class="hl"><code class="language-ts"><span class="nx">issuerFunction</span><span class="p">.</span><span class="nx">addToRolePolicy</span><span class="p">(</span><span class="ow">new</span><span class="w"> </span><span class="nx">iam</span><span class="p">.</span><span class="nx">PolicyStatement</span><span class="p">({</span>
+<span class="w">  </span><span class="nx">actions</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s1">&#39;kms:Sign&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;kms:GetPublicKey&#39;</span><span class="p">],</span>
+<span class="w">  </span><span class="nx">resources</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="nx">caSigningKey</span><span class="p">.</span><span class="nx">keyArn</span><span class="p">],</span>
+<span class="p">}));</span>
+</code></pre></div><p>これは8章で使う証明書発行 Lambda の権限です。署名に使う鍵一つに対して、署名と公開鍵の取得だけを許可しています。鍵の削除やポリシーの変更はできません。</p>
+<h2 id="s6-6">よくある失敗と防ぎ方</h2>
+<h3 id="s6-7"><code>Resource: "*"</code> と <code>Action: "*"</code></h3>
+<p>動かないときに「とりあえず全部許可」とすると、そのまま本番環境まで届いてしまいます。IaC では、これが全環境に正確にコピーされる点が怖いところです。ワイルドカードを使うのは、<code>sts:GetCallerIdentity</code> のようにリソースを指定できない操作に限りましょう。</p>
+<h3 id="s6-8">広すぎる <code>iam:PassRole</code></h3>
+<p><code>iam:PassRole</code> は、「自分が持っているロールを、Lambda や EC2 などのサービスに渡す」権限です。これを <code>Resource: "*"</code> で許可すると、管理者権限を持つロールを Lambda に渡して、間接的に何でもできてしまいます。渡してよいロールの ARN を明示し、可能なら <code>iam:PassedToService</code> 条件で渡し先のサービスも絞ります。</p>
+<h3 id="s6-9">信頼ポリシーの条件漏れ</h3>
+<p>サービスがロールを引き受ける場合でも、「どのリソースから引き受けたか」を条件で絞れることがあります。たとえば、別のアカウントのリソースに自分のロールを悪用される「混乱した代理（confused deputy）」問題を防ぐために、<code>aws:SourceArn</code> や <code>aws:SourceAccount</code> を条件に入れます。</p><div class="code-block"><div class="code-file">信頼ポリシーに条件を付ける例</div><pre class="hl"><code class="language-json"><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;Effect&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Allow&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;Principal&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Service&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;codepipeline.amazonaws.com&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;Action&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;sts:AssumeRole&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;Condition&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;StringEquals&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;aws:SourceAccount&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;111122223333&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div><h2 id="s6-10">コードで権限を検査する</h2>
+<p>IaC にしたからこそできることの一つが、権限の自動検査です。代表的な方法を三つ紹介します。</p>
+<p><strong>CDK のユニットテスト</strong></p>
+<p><code>aws-cdk-lib/assertions</code> を使うと、合成されたテンプレートに特定のポリシーが含まれているか、含まれていないかをテストできます。</p><div class="code-block"><div class="code-file">権限をテストする例</div><pre class="hl"><code class="language-ts"><span class="nx">test</span><span class="p">(</span><span class="s1">&#39;発行用 Lambda は kms:* を持たない&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">template</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Template</span><span class="p">.</span><span class="nx">fromStack</span><span class="p">(</span><span class="nx">stack</span><span class="p">);</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">policies</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">template</span><span class="p">.</span><span class="nx">findResources</span><span class="p">(</span><span class="s1">&#39;AWS::IAM::Policy&#39;</span><span class="p">);</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">json</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">JSON</span><span class="p">.</span><span class="nx">stringify</span><span class="p">(</span><span class="nx">policies</span><span class="p">);</span>
+<span class="w">  </span><span class="nx">expect</span><span class="p">(</span><span class="nx">json</span><span class="p">).</span><span class="nx">not</span><span class="p">.</span><span class="nx">toContain</span><span class="p">(</span><span class="s1">&#39;&quot;kms:*&quot;&#39;</span><span class="p">);</span>
+<span class="p">});</span>
+</code></pre></div><p><strong>cfn-lint</strong></p>
+<p>CloudFormation テンプレートの静的チェックツールです。文法の誤りや、存在しないプロパティ、よくある設定ミスを検出します。</p>
+<p><strong>IAM Access Analyzer のポリシー検証</strong></p>
+<p>IAM Access Analyzer には、ポリシーの文法チェックや、セキュリティ上の警告（たとえば <code>iam:PassRole</code> とワイルドカードの組み合わせ）を出す機能があります。パイプラインに組み込むと、危険な権限がマージされる前に気づけます。</p><aside class="msg msg-info"><div class="msg-body"><p>テストで「持っていてほしくない権限」を明文化しておくと、将来だれかが権限を広げたときにテストが失敗して気づけます。8章のサンプルでは、証明書発行 Lambda が <code>kms:*</code> を持たないことをテストで確認しています。</p></div></aside><h2 id="s6-11">まとめ</h2>
+<ul>
+<li>アクセスは「暗黙の拒否 → Allow で許可候補 → 明示的な Deny で必ず拒否」の順で考えると判断しやすくなります。</li>
+<li>IAM ロールには、「誰が引き受けられるか」を決める信頼ポリシーと、「何ができるか」を決める権限ポリシーがあります。</li>
+<li>CDK では <code>grant</code> 系のメソッドを使うと、対象を絞ったポリシーを安全に生成できます。</li>
+<li>ワイルドカード、広すぎる <code>iam:PassRole</code>、信頼ポリシーの条件漏れは、テストや静的チェックで防ぎます。</li>
+</ul>
+<h2 id="s6-12">確認問題</h2>
+<p><strong>問1.</strong> ロールの権限ポリシーで <code>s3:GetObject</code> を <code>Allow</code> しているのに、アクセスが拒否されました。考えられる原因を二つ挙げてください。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><ul>
+<li>バケットポリシーや SCP など、どこかに明示的な <code>Deny</code> がある（<code>Deny</code> は常に優先されます）。</li>
+<li>SCP やアクセス許可の境界が上限を決めていて、その範囲に <code>s3:GetObject</code> が含まれていない。</li>
+</ul>
+<p>ほかに、オブジェクトが KMS の鍵で暗号化されていて、<code>kms:Decrypt</code> の権限がない、というケースもよくあります。</p></div></details><p><strong>問2.</strong> 信頼ポリシーと権限ポリシーは、それぞれ何を決めるものですか。</p><details class="acc"><summary>解答</summary><div class="acc-body"><p>信頼ポリシーは「誰がそのロールを引き受けられるか」を、権限ポリシーは「そのロールで何ができるか」を決めます。Lambda 用のロールであれば、信頼ポリシーで <code>lambda.amazonaws.com</code> を許可し、権限ポリシーで関数が必要とする操作だけを許可します。</p></div></details><p><strong>問3.</strong> <code>iam:PassRole</code> を <code>Resource: "*"</code> で許可すると、なぜ危険なのですか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>自分が持っていない強い権限を持つロールでも、Lambda や EC2 などに渡せてしまうからです。たとえば管理者権限のロールを付けた Lambda 関数を作れば、その関数を通じて間接的に管理者の操作ができます。渡してよいロールの ARN を明示し、渡し先のサービスも条件で絞るのが原則です。</p></div></details>
+      </div>
+    </article>
+    <nav class="pager" aria-label="チャプター移動">
+<a class="pager-link prev" href="05-cdk-basics.html" rel="prev"><span class="pager-dir">← 前のチャプター</span><span class="pager-title">AWS CDKでインフラをプログラミングする</span></a>
+<a class="pager-link next" href="07-kms-key-management.html" rel="next"><span class="pager-dir">次のチャプター →</span><span class="pager-title">実践1：KMSの鍵をIaCで管理する</span></a>
+    </nav>
+  </main>
+  <aside class="page-toc" id="page-toc" aria-label="このチャプターの目次">
+    <div class="toc-card">
+      <p class="toc-heading">目次</p>
+<ol class="toc"><li><a href="#s6-1">この章で分かること</a></li><li><a href="#s6-2">なぜ IAM を IaC で管理するのか</a></li><li><a href="#s6-3">ポリシー評価の基本</a></li><li><a href="#s6-4">信頼ポリシーと権限ポリシー</a></li><li><a href="#s6-5">CDK で最小権限を書く</a></li><li><a href="#s6-6">よくある失敗と防ぎ方</a><ol><li><a href="#s6-7">Resource: &quot;*&quot; と Action: &quot;*&quot;</a></li><li><a href="#s6-8">広すぎる iam:PassRole</a></li><li><a href="#s6-9">信頼ポリシーの条件漏れ</a></li></ol></li><li><a href="#s6-10">コードで権限を検査する</a></li><li><a href="#s6-11">まとめ</a></li><li><a href="#s6-12">確認問題</a></li></ol>
+    </div>
+  </aside>
+</div>
+<footer class="site-footer">
+  <p>AWSで学ぶ Infrastructure as Code 実践入門 ／ 最終更新 2026-09-29</p>
+  <p class="footer-note">記載のサービス仕様・料金は執筆時点のものです。実装前に AWS 公式ドキュメントで最新情報を確認してください。</p>
+</footer>
+</body>
+</html>

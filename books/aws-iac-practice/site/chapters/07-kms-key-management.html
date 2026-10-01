@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>実践1：KMSの鍵をIaCで管理する | AWSで学ぶ Infrastructure as Code 実践入門</title>
+<meta name="description" content="対称キーと署名用の非対称キーを作り、キーポリシーで管理者と利用者を分けます。">
+<link rel="stylesheet" href="../assets/book.css">
+<script>document.documentElement.className += " js";</script>
+<script src="../assets/book.js" defer></script>
+</head>
+<body class="page-chapter" data-chapter="7">
+<a class="skip-link" href="#main">本文へスキップ</a>
+<input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="チャプター一覧を開閉">
+<header class="topbar">
+  <label for="nav-toggle" class="menu-btn" title="チャプター一覧"><span class="menu-icon" aria-hidden="true"></span><span class="menu-text">チャプター</span></label>
+  <a class="topbar-title" href="../index.html">AWSで学ぶ Infrastructure as Code 実践入門</a>
+  <span class="topbar-chapter" id="topbar-chapter">Chapter 07</span>
+</header>
+<div class="book-layout">
+  <aside class="book-sidebar" id="sidebar" aria-label="チャプター一覧">
+    <a class="side-book" href="../index.html">
+      <span class="mini-cover" aria-hidden="true"><span class="mini-cover-title">AWS<br>IaC</span></span>
+      <span class="side-book-title">AWSで学ぶ Infrastructure as Code 実践入門</span>
+    </a>
+    <nav>
+      <ol class="chapter-list">
+<li><a href="01-introduction.html"><span class="ch-no">1</span><span class="ch-title">はじめに：この本で身につくこと</span></a></li>
+<li><a href="02-what-is-iac.html"><span class="ch-no">2</span><span class="ch-title">IaCとは何か：手作業の何が問題なのか</span></a></li>
+<li><a href="03-aws-iac-tools.html"><span class="ch-no">3</span><span class="ch-title">AWSのIaCツールを見渡す</span></a></li>
+<li><a href="04-cloudformation-basics.html"><span class="ch-no">4</span><span class="ch-title">CloudFormationの基本を押さえる</span></a></li>
+<li><a href="05-cdk-basics.html"><span class="ch-no">5</span><span class="ch-title">AWS CDKでインフラをプログラミングする</span></a></li>
+<li><a href="06-iam-as-code.html"><span class="ch-no">6</span><span class="ch-title">IAMをコードで設計する</span></a></li>
+<li><a href="07-kms-key-management.html" aria-current="page"><span class="ch-no">7</span><span class="ch-title">実践1：KMSの鍵をIaCで管理する</span></a></li>
+<li><a href="08-mtls-cert-issuer.html"><span class="ch-no">8</span><span class="ch-title">実践2：mTLS用クライアント証明書を発行するLambda</span></a></li>
+<li><a href="09-code-pipeline.html"><span class="ch-no">9</span><span class="ch-title">実践3：CodeシリーズでIaCのデプロイを自動化する</span></a></li>
+<li><a href="10-operations-design.html"><span class="ch-no">10</span><span class="ch-title">運用で困らないIaCの設計</span></a></li>
+<li><a href="11-next-steps.html"><span class="ch-no">11</span><span class="ch-title">おわりに：次に学ぶこと</span></a></li>
+      </ol>
+    </nav>
+  </aside>
+  <label for="nav-toggle" class="scrim" aria-hidden="true"></label>
+  <main id="main" class="book-main" tabindex="-1">
+    <article class="chapter-card">
+      <header class="chapter-head">
+        <p class="chapter-label">Chapter 07</p>
+        <h1 class="chapter-title">実践1：KMSの鍵をIaCで管理する</h1>
+        <p class="chapter-meta">読了目安 約13分</p>
+        <details class="toc-inline">
+          <summary>このチャプターの目次</summary>
+<ol class="toc"><li><a href="#s7-1">この章で分かること</a></li><li><a href="#s7-2">鍵こそコードで管理したい</a></li><li><a href="#s7-3">対称キーと非対称キー</a></li><li><a href="#s7-4">キーポリシーを理解する</a><ol><li><a href="#s7-5">CloudFormation で書く</a></li><li><a href="#s7-6">CDK で書く</a></li></ol></li><li><a href="#s7-7">鍵を削除から守る</a></li><li><a href="#s7-8">ローテーションの考え方</a></li><li><a href="#s7-9">テストで設定を守る</a></li><li><a href="#s7-10">コストの目安</a></li><li><a href="#s7-11">まとめ</a></li><li><a href="#s7-12">確認問題</a></li></ol>
+        </details>
+      </header>
+      <div class="chapter-body znc">
+<h2 id="s7-1">この章で分かること</h2>
+<ul>
+<li>KMS の鍵を IaC で管理すると、何がうれしいのか</li>
+<li>キーポリシーで「鍵を管理する人」と「鍵を使う人」を分ける方法</li>
+<li>鍵を誤って削除しないための設定と、ローテーションの考え方</li>
+</ul>
+<h2 id="s7-2">鍵こそコードで管理したい</h2>
+<p>AWS Key Management Service（KMS）は、暗号化や署名に使う鍵を作って保管するサービスです。鍵の本体は KMS の外に出ることがなく、利用者は「この鍵で暗号化して」「この鍵で署名して」と API で依頼するだけです。</p>
+<p>鍵は、ほかのリソースと比べて失敗したときの影響が大きいリソースです。</p>
+<ul>
+<li>鍵を削除すると、その鍵で暗号化したデータは二度と復号できません。</li>
+<li>キーポリシー（鍵に付けるアクセス制御）を誤ると、誰も鍵を使えなくなったり、逆に使わせたくない人まで使えたりします。</li>
+<li>非対称キーの種類（鍵の長さやアルゴリズム）は、作ったあとで変えられません。</li>
+</ul>
+<p>だからこそ、コンソールで作るのではなく、IaC で「どんな設定で、誰に何を許すのか」をレビューしてから作るのが向いています。この章では、8章の証明書発行 Lambda で使う二つの鍵を題材にします。</p>
+<h2 id="s7-3">対称キーと非対称キー</h2>
+<p>KMS の鍵には、大きく分けて2種類あります。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>種類</th>
+<th>仕組み</th>
+<th>主な用途</th>
+<th>この本での使い方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>対称キー</td>
+<td>暗号化と復号に同じ鍵を使う</td>
+<td>S3・DynamoDB などのデータ暗号化</td>
+<td><code>DataKey</code>：証明書台帳やアーティファクトの暗号化</td>
+</tr>
+<tr>
+<td>非対称キー</td>
+<td>秘密鍵と公開鍵のペア</td>
+<td>デジタル署名、公開鍵暗号</td>
+<td><code>CaSigningKey</code>：クライアント証明書への署名</td>
+</tr>
+</tbody>
+</table></div>
+<p>対称キーは、AWS のサービスと組み合わせて「保存データの暗号化」に使うのが一般的です。S3 バケットや DynamoDB テーブルに鍵を指定すると、読み書きのたびにサービスが裏で KMS を呼び出します。</p>
+<p>非対称キーは、秘密鍵を KMS の中に閉じ込めたまま署名できる点が特長です。8章では、この性質を使って「秘密鍵をどこにも保存しない認証局（CA）」を作ります。非対称キーの <strong>キー仕様</strong>（<code>ECC_NIST_P256</code> など）と <strong>キーの用途</strong>（署名用の <code>SIGN_VERIFY</code> か、暗号化用の <code>ENCRYPT_DECRYPT</code> か）は作成後に変更できないので、最初に正しく決めておく必要があります。</p>
+<h2 id="s7-4">キーポリシーを理解する</h2>
+<p>KMS の権限は、IAM とは少し考え方が違います。ほかのサービスでは IAM ポリシーだけで権限が決まることが多いのに対して、KMS では <strong>鍵ごとのキーポリシーが出発点</strong> になります。キーポリシーで許可されていない限り、IAM ポリシーで <code>Allow</code> しても鍵は使えません。</p><figure class="fig"><img src="../images/ch07-key-policy.png" alt="キーポリシーで役割を分ける：アカウントへの委任、鍵の管理者、鍵の利用者の3つの文で権限を組み立てる" loading="lazy" width="1280" height="720"><figcaption>キーポリシーで役割を分ける：アカウントへの委任、鍵の管理者、鍵の利用者の3つの文で権限を組み立てる</figcaption></figure><p>実務でよく使うのは、次の三つの文（Statement）の組み合わせです。</p>
+<ol>
+<li><strong>アカウントへの委任</strong>：アカウントのルート（<code>arn:aws:iam::111122223333:root</code>）に <code>kms:*</code> を許可する文です。AWS が作るデフォルトのキーポリシーにも含まれています。「ルートユーザーに全権を渡す」という意味ではなく、「このアカウントの IAM ポリシーで、鍵の権限を配ってよい」という委任の意味を持ちます。これがないと、IAM 側でどれだけ許可しても鍵を使えません。</li>
+<li><strong>鍵の管理者</strong>：鍵の設定変更、エイリアスの管理、削除の予約などを許可します。暗号化・復号・署名は含めません。</li>
+<li><strong>鍵の利用者</strong>：暗号化・復号、あるいは署名など、実際に鍵を使う操作だけを許可します。設定の変更はできません。</li>
+</ol><aside class="msg msg-info"><div class="msg-body"><p>管理者と利用者を分けておくと、「鍵の設定を変えられる人」と「データを読める人」が別になります。鍵の管理者であっても、利用者として許可されていなければデータを復号できません。職務の分離（Separation of Duties）を、鍵の単位で実現できるわけです。</p></div></aside><h3 id="s7-5">CloudFormation で書く</h3>
+<p><code>samples/cfn/kms-key.yaml</code> は、三つの文をそのまま書いた例です。管理者と利用者のロールは、パラメータで受け取ります。</p><div class="code-block"><div class="code-file">samples/cfn/kms-key.yaml（抜粋）</div><pre class="hl"><code class="language-yaml"><span class="nt">Resources</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">DataKey</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">Type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">AWS::KMS::Key</span>
+<span class="w">    </span><span class="nt">DeletionPolicy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Retain</span>
+<span class="w">    </span><span class="nt">UpdateReplacePolicy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Retain</span>
+<span class="w">    </span><span class="nt">Properties</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">Description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Data encryption key for the IaC book sample</span>
+<span class="w">      </span><span class="nt">EnableKeyRotation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">      </span><span class="nt">PendingWindowInDays</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="w">      </span><span class="nt">KeyPolicy</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">Version</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;2012-10-17&#39;</span>
+<span class="w">        </span><span class="nt">Statement</span><span class="p">:</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">Sid</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">EnableAccountDelegation</span>
+<span class="w">            </span><span class="nt">Effect</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Allow</span>
+<span class="w">            </span><span class="nt">Principal</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">AWS</span><span class="p">:</span><span class="w"> </span><span class="kt">!Sub</span><span class="w"> </span><span class="s">&#39;arn:${AWS::Partition}:iam::${AWS::AccountId}:root&#39;</span>
+<span class="w">            </span><span class="nt">Action</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:*</span>
+<span class="w">            </span><span class="nt">Resource</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;*&#39;</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">Sid</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">KeyAdministration</span>
+<span class="w">            </span><span class="nt">Effect</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Allow</span>
+<span class="w">            </span><span class="nt">Principal</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">AWS</span><span class="p">:</span><span class="w"> </span><span class="kt">!Ref</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">KeyAdminRoleArn</span>
+<span class="w">            </span><span class="nt">Action</span><span class="p">:</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:Describe*</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:Put*</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:Update*</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:ScheduleKeyDeletion</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:CancelKeyDeletion</span>
+<span class="w">              </span><span class="c1"># ほかの管理系アクションは省略</span>
+<span class="w">            </span><span class="nt">Resource</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;*&#39;</span>
+<span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">Sid</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">KeyUsage</span>
+<span class="w">            </span><span class="nt">Effect</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Allow</span>
+<span class="w">            </span><span class="nt">Principal</span><span class="p">:</span>
+<span class="w">              </span><span class="nt">AWS</span><span class="p">:</span><span class="w"> </span><span class="kt">!Ref</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">KeyUserRoleArn</span>
+<span class="w">            </span><span class="nt">Action</span><span class="p">:</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:Encrypt</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:Decrypt</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:ReEncrypt*</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:GenerateDataKey*</span>
+<span class="w">              </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">kms:DescribeKey</span>
+<span class="w">            </span><span class="nt">Resource</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;*&#39;</span>
+</code></pre></div><p>キーポリシーの中の <code>Resource: '*'</code> は、「この鍵自身」を指します。キーポリシーは鍵に直接付くので、ほかの鍵を指すことはありません。IAM ポリシーの <code>Resource: "*"</code> とは意味が違うので、ここは安心して書いて大丈夫です。</p>
+<h3 id="s7-6">CDK で書く</h3>
+<p>CDK の <code>kms.Key</code> を使うと、委任の文は自動でキーポリシーに入ります。管理者は <code>admins</code> で指定し、利用者は鍵を使う側で <code>grant</code> 系のメソッドを呼んで許可します。サンプルの <code>KmsStack</code> は次のとおりです。</p><div class="code-block"><div class="code-file">samples/cdk/lib/kms-stack.ts（抜粋）</div><pre class="hl"><code class="language-ts"><span class="kd">const</span><span class="w"> </span><span class="nx">adminRoleArn</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">this</span><span class="p">.</span><span class="nx">node</span><span class="p">.</span><span class="nx">tryGetContext</span><span class="p">(</span><span class="s2">&quot;keyAdminRoleArn&quot;</span><span class="p">)</span><span class="w"> </span><span class="kr">as</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">undefined</span><span class="p">;</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">admins</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">adminRoleArn</span>
+<span class="w">  </span><span class="o">?</span><span class="w"> </span><span class="p">[</span><span class="nx">iam</span><span class="p">.</span><span class="nx">Role</span><span class="p">.</span><span class="nx">fromRoleArn</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;KeyAdminRole&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">adminRoleArn</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">mutable</span><span class="o">:</span><span class="w"> </span><span class="kt">false</span><span class="w"> </span><span class="p">})]</span>
+<span class="w">  </span><span class="o">:</span><span class="w"> </span><span class="kc">undefined</span><span class="p">;</span>
+
+<span class="c1">// データ暗号化用の対称キー</span>
+<span class="k">this</span><span class="p">.</span><span class="nx">dataKey</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">kms</span><span class="p">.</span><span class="nx">Key</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;DataKey&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">description</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;IaC book sample: data encryption key&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">enableKeyRotation</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">pendingWindow</span><span class="o">:</span><span class="w"> </span><span class="kt">cdk.Duration.days</span><span class="p">(</span><span class="mf">30</span><span class="p">),</span>
+<span class="w">  </span><span class="nx">removalPolicy</span><span class="o">:</span><span class="w"> </span><span class="kt">cdk.RemovalPolicy.RETAIN</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">alias</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;iac-book/data&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">admins</span><span class="p">,</span>
+<span class="p">});</span>
+
+<span class="c1">// クライアント証明書に署名するための非対称キー</span>
+<span class="k">this</span><span class="p">.</span><span class="nx">caSigningKey</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">kms</span><span class="p">.</span><span class="nx">Key</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;CaSigningKey&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">keySpec</span><span class="o">:</span><span class="w"> </span><span class="kt">kms.KeySpec.ECC_NIST_P256</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">keyUsage</span><span class="o">:</span><span class="w"> </span><span class="kt">kms.KeyUsage.SIGN_VERIFY</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">pendingWindow</span><span class="o">:</span><span class="w"> </span><span class="kt">cdk.Duration.days</span><span class="p">(</span><span class="mf">30</span><span class="p">),</span>
+<span class="w">  </span><span class="nx">removalPolicy</span><span class="o">:</span><span class="w"> </span><span class="kt">cdk.RemovalPolicy.RETAIN</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">alias</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;iac-book/client-ca&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">admins</span><span class="p">,</span>
+<span class="p">});</span>
+</code></pre></div><p>管理者のロールは、<code>cdk deploy -c keyAdminRoleArn=arn:aws:iam::111122223333:role/KeyAdmin</code> のようにコンテキストで渡します。指定しなければ委任の文だけになり、IAM ポリシー側で管理者を決める運用になります。</p>
+<p>利用者の権限は、8章の <code>CertIssuerStack</code> で次のように付けています。</p><div class="code-block"><div class="code-file">samples/cdk/lib/cert-issuer-stack.ts（抜粋）</div><pre class="hl"><code class="language-ts"><span class="c1">// 署名用の鍵は、署名と公開鍵の取得だけ</span>
+<span class="nx">caSigningKey</span><span class="p">.</span><span class="nx">grant</span><span class="p">(</span><span class="nx">issuer</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;kms:Sign&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;kms:GetPublicKey&quot;</span><span class="p">);</span>
+<span class="c1">// 台帳テーブルの暗号化に使う鍵は、暗号化と復号</span>
+<span class="nx">dataKey</span><span class="p">.</span><span class="nx">grantEncryptDecrypt</span><span class="p">(</span><span class="nx">issuer</span><span class="p">);</span>
+</code></pre></div><p><code>grant</code> は、指定した操作だけを、その鍵だけに限定して許可する IAM ポリシーを生成します。<code>kms:*</code> のような広い許可を書かずに済むのが利点です。</p><aside class="msg msg-info"><div class="msg-body"><p>DynamoDB テーブルや S3 バケットをカスタマーマネージドキーで暗号化すると、テーブルを読み書きする側にも KMS の権限が必要になります。サービスが呼び出し元に代わって KMS を呼ぶためです。「DynamoDB の権限は付けたのに AccessDenied になる」ときは、まず鍵の権限を疑いましょう。</p></div></aside><h2 id="s7-7">鍵を削除から守る</h2>
+<p>鍵の削除は、IaC の操作ミスで起こり得る事故の中でも特に影響が大きいものです。サンプルでは、三重の備えをしています。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>設定</th>
+<th>効果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>removalPolicy: RETAIN</code></td>
+<td>スタックを削除しても、鍵は削除せずに残す</td>
+</tr>
+<tr>
+<td><code>pendingWindow: 30日</code></td>
+<td>削除を予約してから実際に消えるまでの待機期間。7〜30日で指定し、その間は取り消せる</td>
+</tr>
+<tr>
+<td><code>alias</code></td>
+<td>鍵 ID ではなく別名（<code>alias/iac-book/data</code>）で参照できるようにする</td>
+</tr>
+</tbody>
+</table></div>
+<p>KMS の鍵は、<code>ScheduleKeyDeletion</code> で削除を予約しても、待機期間が過ぎるまでは <code>CancelKeyDeletion</code> で取り消せます。待機期間を最大の30日にしておけば、誤って予約しても気づく時間を確保できます。待機期間中の鍵は使えなくなるので、利用しているサービスでエラーが出はじめたら、それが気づくきっかけになります。</p>
+<h2 id="s7-8">ローテーションの考え方</h2>
+<p><strong>自動ローテーション</strong> は、対称キーで使える機能です。有効にすると、KMS が定期的に新しい鍵の素材（キーマテリアル）を作ります。既定では1年ごとで、間隔は変更できます。古い素材も KMS の中に残るので、過去に暗号化したデータもそのまま復号できます。鍵 ID や ARN は変わらないので、アプリケーション側の変更は不要です。</p>
+<p>一方、非対称キーは自動ローテーションに対応していません。署名用の鍵を入れ替えたいときは、新しい鍵を作り、エイリアスの向き先を切り替えます。8章の CA 用の鍵で考えると、次の手順になります。</p>
+<ol>
+<li>新しい非対称キーを作り、新しい CA 証明書を発行する</li>
+<li>mTLS のトラストストアに、新旧両方の CA 証明書を入れる</li>
+<li>発行 Lambda を新しい鍵に切り替える</li>
+<li>古い CA で発行した証明書がすべて期限切れになってから、古い CA をトラストストアから外す</li>
+</ol>
+<p>鍵の種類を変えられないことも含めて、非対称キーは「作り直す前提」で運用を設計しておくと安心です。</p>
+<h2 id="s7-9">テストで設定を守る</h2>
+<p>鍵の設定は、あとから誰かがうっかり変えてしまうと危険です。CDK のユニットテストで、守りたい設定を明文化しておきます。</p><div class="code-block"><div class="code-file">samples/cdk/test/stacks.test.ts（抜粋）</div><pre class="hl"><code class="language-ts"><span class="nx">test</span><span class="p">(</span><span class="s2">&quot;DataKey はローテーション有効・CaSigningKey は署名専用の非対称キー&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">Template</span><span class="p">.</span><span class="nx">fromStack</span><span class="p">(</span><span class="nx">kmsStack</span><span class="p">());</span>
+<span class="w">  </span><span class="nx">t</span><span class="p">.</span><span class="nx">hasResourceProperties</span><span class="p">(</span><span class="s2">&quot;AWS::KMS::Key&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">EnableKeyRotation</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="w"> </span><span class="p">});</span>
+<span class="w">  </span><span class="nx">t</span><span class="p">.</span><span class="nx">hasResourceProperties</span><span class="p">(</span><span class="s2">&quot;AWS::KMS::Key&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">KeySpec</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;ECC_NIST_P256&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">KeyUsage</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;SIGN_VERIFY&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="p">});</span>
+<span class="p">});</span>
+</code></pre></div><p><code>removalPolicy: RETAIN</code> は、テンプレート上では <code>DeletionPolicy: Retain</code> になります。これもテストで確認しておくと、削除ポリシーを外す変更がレビューをすり抜けにくくなります。</p>
+<h2 id="s7-10">コストの目安</h2>
+<p>カスタマーマネージドキーは、1個あたり月額の料金がかかります。加えて、暗号化・復号・署名などの API 呼び出しにもリクエスト単位の料金がかかります。自動ローテーションで増えた古いキーマテリアルにも料金がかかる場合があります。料金は変わることがあるので、使う前に AWS KMS の料金ページで確認してください（本書の記述は2026年9月時点の情報をもとにしています）。</p>
+<h2 id="s7-11">まとめ</h2>
+<ul>
+<li>KMS の鍵は、削除やポリシーの誤りの影響が大きいので、IaC でレビューしてから作ります。</li>
+<li>キーポリシーは「アカウントへの委任」「鍵の管理者」「鍵の利用者」の三つの文に分けると、職務を分離できます。</li>
+<li>CDK では、管理者を <code>admins</code>、利用者を <code>grant</code> で指定します。利用者の権限は必要な操作だけに絞ります。</li>
+<li><code>RETAIN</code>、30日の削除待機期間、エイリアスで、鍵を誤削除から守ります。</li>
+<li>対称キーは自動ローテーションを有効にし、非対称キーは新しい鍵への切り替え手順を用意しておきます。</li>
+</ul>
+<h2 id="s7-12">確認問題</h2>
+<p><strong>問1.</strong> IAM ポリシーで <code>kms:Decrypt</code> を許可したのに、復号が拒否されました。キーポリシー側で確認すべき点は何ですか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>キーポリシーに、アカウントへの委任の文（ルートへの <code>kms:*</code> の許可）があるかを確認します。この文がないと、IAM ポリシーでの許可は鍵に対して効きません。委任の文を置かない設計なら、キーポリシー自体にそのロールへの <code>kms:Decrypt</code> の許可が必要です。</p></div></details><p><strong>問2.</strong> 鍵の管理者に <code>kms:Decrypt</code> を含めないのは、なぜですか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>鍵の設定を変更できる人と、データを読める人を分けるためです。管理者が復号もできると、一人でデータを読み出せてしまいます。役割を分けておけば、どちらか一方の権限が漏れても被害を限定できます。</p></div></details><p><strong>問3.</strong> 8章の CA 署名用の非対称キーを、別のキー仕様に変更したくなりました。どう対応すればよいですか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>キー仕様は作成後に変更できないので、新しい非対称キーを作ります。新しい鍵で CA 証明書を作り、トラストストアに新旧両方の CA 証明書を入れたうえで、発行 Lambda を新しい鍵に切り替えます。古い CA の証明書がすべて期限切れになってから、古い CA をトラストストアから外します。</p></div></details>
+      </div>
+    </article>
+    <nav class="pager" aria-label="チャプター移動">
+<a class="pager-link prev" href="06-iam-as-code.html" rel="prev"><span class="pager-dir">← 前のチャプター</span><span class="pager-title">IAMをコードで設計する</span></a>
+<a class="pager-link next" href="08-mtls-cert-issuer.html" rel="next"><span class="pager-dir">次のチャプター →</span><span class="pager-title">実践2：mTLS用クライアント証明書を発行するLambda</span></a>
+    </nav>
+  </main>
+  <aside class="page-toc" id="page-toc" aria-label="このチャプターの目次">
+    <div class="toc-card">
+      <p class="toc-heading">目次</p>
+<ol class="toc"><li><a href="#s7-1">この章で分かること</a></li><li><a href="#s7-2">鍵こそコードで管理したい</a></li><li><a href="#s7-3">対称キーと非対称キー</a></li><li><a href="#s7-4">キーポリシーを理解する</a><ol><li><a href="#s7-5">CloudFormation で書く</a></li><li><a href="#s7-6">CDK で書く</a></li></ol></li><li><a href="#s7-7">鍵を削除から守る</a></li><li><a href="#s7-8">ローテーションの考え方</a></li><li><a href="#s7-9">テストで設定を守る</a></li><li><a href="#s7-10">コストの目安</a></li><li><a href="#s7-11">まとめ</a></li><li><a href="#s7-12">確認問題</a></li></ol>
+    </div>
+  </aside>
+</div>
+<footer class="site-footer">
+  <p>AWSで学ぶ Infrastructure as Code 実践入門 ／ 最終更新 2026-09-29</p>
+  <p class="footer-note">記載のサービス仕様・料金は執筆時点のものです。実装前に AWS 公式ドキュメントで最新情報を確認してください。</p>
+</footer>
+</body>
+</html>

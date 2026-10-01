@@ -1,0 +1,47 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.flow { flex: 1.35; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
+.q { display: flex; align-items: center; gap: 12px; }
+.q .no { width: 34px; height: 34px; flex: none; border-radius: 50%; background: var(--navy-darkest); color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.q .txt { flex: 1; background: var(--paper); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 15px; font-weight: 700; line-height: 1.45; }
+.q .txt span { display: block; font-weight: 400; font-size: 12.5px; color: var(--ink-sub); }
+.q .yes { width: 190px; flex: none; border-radius: 10px; padding: 10px 12px; font-size: 14px; font-weight: 800; text-align: center; line-height: 1.4; }
+.q .yes span { display: block; font-size: 12px; font-weight: 400; }
+.deny { background: #fdf0f1; color: var(--red); border: 1.5px solid var(--red); }
+.allow { background: #edf7f1; color: var(--green); border: 1.5px solid var(--green); }
+.q .lab { width: 42px; flex: none; font-size: 12px; font-weight: 800; color: var(--ink-sub); text-align: center; }
+.dn { margin-left: 46px; color: var(--ink-sub); font-size: 12.5px; font-weight: 700; }
+.side { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.pol { display: flex; flex-direction: column; gap: 8px; }
+.pol div { display: flex; gap: 10px; font-size: 13.5px; line-height: 1.5; }
+.pol b { width: 92px; flex: none; color: var(--navy-dark); }
+.code { background: #0f1b3d; color: #dbe2fa; border-radius: 8px; padding: 10px 12px; font-family: Consolas, monospace; font-size: 12.5px; line-height: 1.6; }
+.code em { color: var(--gold); font-style: normal; }
+.kms { margin-top: 16px; display: flex; gap: 16px; align-items: center; font-size: 14.5px; }
+.kms b { color: var(--gold); white-space: nowrap; font-size: 15.5px; }
+</style></head><body>
+<div class="title">IAMは「明示的なDenyが最優先、Allowがなければ拒否」</div>
+<div class="rule"></div>
+<div class="lead">1つのアカウントの中なら、上から順に3つの問いに答えるだけで結果が決まります</div>
+<div class="area">
+  <div class="card flow">
+    <div class="q"><div class="no">1</div><div class="txt">どこかに明示的な Deny があるか<span>SCP・境界・ロール・リソース側のポリシーのどれか</span></div><div class="lab">ある</div><div class="yes deny">拒否<span>Allow があっても覆らない</span></div></div>
+    <div class="dn">↓ ない</div>
+    <div class="q"><div class="no">2</div><div class="txt">SCP と境界の「上限」の中に収まっているか<span>Organizations の SCP、アクセス許可の境界</span></div><div class="lab">外</div><div class="yes deny">拒否<span>上限の外は許可できない</span></div></div>
+    <div class="dn">↓ 中</div>
+    <div class="q"><div class="no">3</div><div class="txt">ロールかリソース側に Allow があるか<span>アイデンティティベース／リソースベースのポリシー</span></div><div class="lab">ない</div><div class="yes deny">暗黙の拒否<span>書かれていなければ拒否</span></div></div>
+    <div class="dn">↓ ある</div>
+    <div class="q"><div class="no" style="background:var(--green)">✓</div><div class="txt">許可</div><div class="lab"></div><div class="yes allow">アクセスできる<span>必要な分だけ Allow する</span></div></div>
+  </div>
+  <div class="card side">
+    <div class="h">ロールに付く2種類のポリシー</div>
+    <div class="pol"><div><b>信頼ポリシー</b>誰がこのロールを引き受けられるか</div><div><b>権限ポリシー</b>このロールで何ができるか</div></div>
+    <div class="h" style="font-size:17px">CDK なら対象を絞って生成</div>
+    <div class="code">caSigningKey.grant(issuer,<br>&nbsp;&nbsp;<em>"kms:Sign"</em>, <em>"kms:GetPublicKey"</em>);<br>table.grant(issuer, <em>"dynamodb:PutItem"</em>);</div>
+    <div class="h" style="font-size:17px">信頼ポリシーは条件まで書く</div>
+    <div class="code">"Principal": { "Service": <em>"lambda.amazonaws.com"</em> },<br>"Action": "sts:AssumeRole",<br>"Condition": { "StringEquals":<br>&nbsp;&nbsp;{ "aws:SourceAccount": <em>"111122223333"</em> } }</div>
+    <div class="s">避けたい書き方：<b>Action: "*"</b>、<b>Resource: "*"</b>、渡し先を絞らない <b>iam:PassRole</b></div>
+  </div>
+</div>
+<div class="band kms"><b>KMSは例外</b>キーポリシーで許可されていない鍵は、IAM ポリシーで Allow しても使えません（7章）</div>
+</body></html>

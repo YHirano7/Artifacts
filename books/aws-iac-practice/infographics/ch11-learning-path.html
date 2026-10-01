@@ -1,0 +1,35 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.area { gap: 20px; }
+.now { width: 300px; flex: none; background: var(--navy-darkest); color: #fff; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+.now .lb { color: var(--gold); font-weight: 800; font-size: 13px; letter-spacing: .06em; }
+.now .h { color: #fff; }
+.now ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.now li { font-size: 15px; line-height: 1.5; padding-left: 14px; position: relative; color: #dbe2fa; }
+.now li::before { content: ""; position: absolute; left: 0; top: .6em; width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+.now .pr { margin-top: auto; border-top: 1px solid rgba(255,255,255,.25); padding-top: 12px; font-size: 15px; font-weight: 700; line-height: 1.6; color: #fff; }
+.grid { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.th { display: flex; flex-direction: column; gap: 8px; }
+.th .top { display: flex; gap: 12px; align-items: center; }
+.th .t { font-size: 15.5px; }
+.th .link { font-size: 13px; line-height: 1.55; color: var(--ink-sub); background: var(--band); border-radius: 8px; padding: 8px 10px; }
+.th .link b { color: var(--navy-dark); }
+.th .kw { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+.th .kw span { font-size: 12px; background: #eef6fd; border: 1px solid #b9dcf5; border-radius: 99px; padding: 2px 10px; color: var(--navy-dark); font-weight: 700; }
+</style></head><body>
+<div class="title">次の一歩：同じ原則を、組織の規模で回す</div>
+<div class="rule"></div>
+<div class="lead">この本で使った3つの原則はそのままに、対象をアカウント全体・ルール・テスト・証明書運用へ広げます</div>
+<div class="area">
+  <div class="now"><div class="lb">この本で身につけたこと</div><div class="h">3つの実践と原則</div>
+    <ul><li>7章 KMSの鍵をキーポリシーごと管理</li><li>8章 KMSで署名する証明書発行Lambda</li><li>9章 変更セットと承認つきパイプライン</li></ul>
+    <div class="pr">権限は必要な分だけ<br>データと鍵は削除から守る<br>差分は人が確かめてから反映</div></div>
+  <svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg>
+  <div class="grid">
+    <div class="card th"><div class="top"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg><div class="h">複数アカウントへ展開</div></div><div class="t">本番・検証・開発をアカウントで分け、共通設定を一括で配る</div><div class="link"><b>本書とのつながり：</b>9章のパイプラインを専用アカウントに置き、各環境へデプロイする</div><div class="kw"><span>StackSets</span><span>Organizations</span><span>cdk bootstrap --trust</span></div></div>
+    <div class="card th"><div class="top"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg><div class="h">ルールをコードにする</div></div><div class="t">「暗号化しないバケットは作らない」などを自動で検査する</div><div class="link"><b>本書とのつながり：</b>6章のIAMのテストを、組織全体の共通ルールに引き上げる</div><div class="kw"><span>cfn-guard</span><span>cdk-nag</span><span>CloudFormation Hooks</span></div></div>
+    <div class="card th"><div class="top"><svg class="icon" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg><div class="h">テストを厚くする</div></div><div class="t">ユニットテストに加え、実際にデプロイして動作を確かめる</div><div class="link"><b>本書とのつながり：</b>8章の証明書でmTLSのAPIを実際に呼び、Allow／Denyを確かめる</div><div class="kw"><span>統合テスト</span><span>integ-tests</span><span>一時環境</span></div></div>
+    <div class="card th"><div class="top"><svg class="icon" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h5"/><circle cx="15" cy="16" r="2"/></svg><div class="h">証明書運用を高度にする</div></div><div class="t">失効・更新・CAのローテーションを仕組みで回す</div><div class="link"><b>本書とのつながり：</b>8章の台帳を使った失効確認を、標準的な失効情報の配布へ広げる</div><div class="kw"><span>AWS Private CA</span><span>CRL・OCSP</span><span>自動更新</span></div></div>
+  </div>
+</div>
+</body></html>

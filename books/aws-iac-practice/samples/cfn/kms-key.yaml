@@ -1,0 +1,68 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Customer managed KMS key with separated administration and use
+Parameters:
+  KeyAdminRoleArn:
+    Type: String
+    Description: IAM role ARN allowed to manage key configuration
+  KeyUserRoleArn:
+    Type: String
+    Description: IAM role ARN allowed to use the key for data encryption
+Resources:
+  DataKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Data encryption key for the IaC book sample
+      EnableKeyRotation: true
+      PendingWindowInDays: 30
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableAccountDelegation
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
+            Action: kms:*
+            Resource: '*'
+          - Sid: KeyAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Ref KeyAdminRoleArn
+            Action:
+              - kms:Describe*
+              - kms:Get*
+              - kms:List*
+              - kms:PutKeyPolicy
+              - kms:Update*
+              - kms:Enable*
+              - kms:Disable*
+              - kms:CreateAlias
+              - kms:UpdateAlias
+              - kms:DeleteAlias
+              - kms:TagResource
+              - kms:UntagResource
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+            Resource: '*'
+          - Sid: KeyUsage
+            Effect: Allow
+            Principal:
+              AWS: !Ref KeyUserRoleArn
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: '*'
+  DataKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/iac-book/data
+      TargetKeyId: !Ref DataKey
+Outputs:
+  KeyArn:
+    Value: !GetAtt DataKey.Arn
+  AliasName:
+    Value: !Ref DataKeyAlias

@@ -1,0 +1,64 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.tree { flex: 1.25; display: flex; flex-direction: column; gap: 10px; }
+.app { background: var(--navy-darkest); color: #fff; border-radius: 10px; padding: 10px 14px; }
+.lb { font-size: 13px; font-weight: 800; letter-spacing: .06em; }
+.app > .lb { color: var(--gold); }
+.stks { display: flex; gap: 8px; margin-top: 8px; }
+.stk { flex: 1; background: #fff; color: var(--ink); border-radius: 8px; padding: 8px 10px; }
+.stk > .lb { color: var(--blue-vivid); }
+.stk .nm { font-weight: 800; font-size: 14.5px; color: var(--navy-darkest); margin: 2px 0 6px; }
+.cs { display: flex; flex-direction: column; gap: 5px; }
+.cs span { font-size: 12px; background: #eef6fd; border: 1px solid #b9dcf5; border-radius: 6px; padding: 3px 7px; font-family: Consolas, monospace; }
+.xref { display: flex; gap: 12px; align-items: center; background: #eef6fd; border: 1px solid #b9dcf5; border-radius: 10px; padding: 10px 14px; font-size: 13.5px; line-height: 1.55; }
+.xref b { color: var(--navy-dark); }
+.test { margin-top: auto; background: var(--band); border-radius: 10px; padding: 10px 14px; font-size: 13.5px; line-height: 1.55; }
+.test b { color: var(--navy-dark); display: block; }
+.test code { font-family: Consolas, monospace; font-size: 12.5px; }
+.legend { display: flex; gap: 10px; margin-top: auto; }
+.lv { flex: 1; background: var(--band); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; line-height: 1.5; }
+.lv b { color: var(--navy-dark); font-size: 13.5px; }
+.mid { width: 120px; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+.mid .cmd { font-family: Consolas, monospace; font-weight: 800; font-size: 16px; color: var(--blue-vivid); }
+.mid .s { text-align: center; }
+.out { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.file { background: #0f1b3d; color: #dbe2fa; border-radius: 10px; padding: 10px 14px; font-family: Consolas, monospace; font-size: 12.5px; line-height: 1.65; }
+.file em { color: var(--gold); font-style: normal; }
+.dep { display: flex; flex-direction: column; gap: 8px; }
+.dep div { display: flex; gap: 10px; align-items: baseline; font-size: 13.5px; line-height: 1.5; }
+.dep code { font-family: Consolas, monospace; font-weight: 800; color: var(--navy-dark); width: 92px; flex: none; }
+.warn { margin-top: 16px; display: flex; gap: 16px; align-items: center; font-size: 14.5px; }
+.warn b { color: var(--gold); font-size: 15.5px; white-space: nowrap; }
+</style></head><body>
+<div class="title">CDKのコードは、synthでCloudFormationテンプレートになる</div>
+<div class="rule"></div>
+<div class="lead">App・Stack・Constructの3階層で書き、生成されたテンプレートをCloudFormationがデプロイします</div>
+<div class="area">
+  <div class="card tree">
+    <div class="app"><div class="lb">APP　bin/app.ts</div>
+      <div class="stks">
+        <div class="stk"><div class="lb">STACK</div><div class="nm">KmsStack</div><div class="cs"><span>kms.Key DataKey</span><span>kms.Key CaSigningKey</span></div></div>
+        <div class="stk"><div class="lb">STACK</div><div class="nm">CertIssuerStack</div><div class="cs"><span>lambda.Function</span><span>dynamodb.Table</span><span>s3.Bucket</span></div></div>
+        <div class="stk"><div class="lb">STACK</div><div class="nm">PipelineStack</div><div class="cs"><span>codepipeline.Pipeline</span><span>codebuild.Project</span></div></div>
+      </div></div>
+    <div class="xref"><svg class="icon" viewBox="0 0 24 24"><path d="M4 12h12M12 6l6 6-6 6"/><path d="M20 4v16"/></svg><div><b>スタックをまたぐ参照は自動で配線</b><br>KmsStack の鍵を CertIssuerStack に渡すと、Export と Fn::ImportValue が生成される</div></div>
+    <div class="legend">
+      <div class="lv"><b>L1</b>　CfnKey など<br>CloudFormationと1対1</div>
+      <div class="lv"><b>L2</b>　kms.Key など<br>安全な既定値つき。実務の中心</div>
+      <div class="lv"><b>L3</b>　パターン<br>複数リソースの組み合わせ</div>
+    </div>
+  </div>
+  <div class="mid"><div class="cmd">cdk synth</div><svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg><div class="s">AWSは<br>変更しない</div></div>
+  <div class="card out">
+    <div class="h">cdk.out/ に生成されるもの</div>
+    <div class="file">KmsStack.template.json<br>{ "Resources": {<br>&nbsp;&nbsp;"<em>DataKey</em>A1B2C3D4": {<br>&nbsp;&nbsp;&nbsp;&nbsp;"Type": "AWS::KMS::Key", ...</div>
+    <div class="dep">
+      <div><code>cdk diff</code>デプロイ済みスタックとの差分を見る</div>
+      <div><code>cdk deploy</code>資材を上げ、変更セットを作って実行する</div>
+      <div><code>bootstrap</code>アカウント×リージョンごとに最初に1回</div>
+    </div>
+    <div class="test"><b>生成結果をテストで守る</b><code>Template.fromStack(stack)</code> で、鍵のローテーションや削除保護が設定されているかを検査する</div>
+  </div>
+</div>
+<div class="band warn"><b>注意</b>Constructの id は論理 ID（DataKeyA1B2C3D4 など）の元になります。id を変えるとリソースが作り直されます</div>
+</body></html>

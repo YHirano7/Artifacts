@@ -1,0 +1,42 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.area { gap: 18px; }
+.key { width: 280px; flex: none; background: var(--navy-darkest); color: #fff; border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.key .lb { color: var(--gold); font-weight: 800; font-size: 13px; letter-spacing: .06em; }
+.key .nm { font-size: 22px; font-weight: 800; }
+.key .row { font-size: 13.5px; line-height: 1.55; color: #dbe2fa; border-top: 1px solid rgba(255,255,255,.2); padding-top: 10px; }
+.key .row b { display: block; color: #fff; font-size: 14.5px; }
+.key code { font-family: Consolas, monospace; font-size: 12.5px; color: var(--gold); }
+.stmts { flex: 1; display: flex; flex-direction: column; gap: 16px; }
+.st { display: flex; gap: 14px; align-items: stretch; flex: 1; }
+.st .no { width: 52px; flex: none; border-radius: 10px; color: #fff; font-weight: 800; font-size: 24px; display: flex; align-items: center; justify-content: center; }
+.st .bd { flex: 1; background: var(--paper); border: 1.5px solid var(--line); border-radius: 10px; padding: 12px 16px; display: flex; gap: 16px; align-items: center; }
+.st .who { width: 250px; flex: none; }
+.st .who .h { font-size: 20px; margin-bottom: 4px; }
+.st .who code { font-family: Consolas, monospace; font-size: 13px; color: var(--ink-sub); }
+.st .acts { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
+.st .acts span { font-family: Consolas, monospace; font-size: 13.5px; border-radius: 99px; padding: 5px 12px; font-weight: 700; }
+.ok span { background: #edf7f1; color: var(--green); border: 1px solid #b7dcc4; }
+.ng span { background: #fdf0f1; color: var(--red); border: 1px solid #f0c2c7; }
+.st .acts .sep { background: none; border: none; color: var(--ink-sub); font-family: inherit; padding: 3px 0; }
+.st .memo { width: 230px; flex: none; font-size: 14px; line-height: 1.55; color: var(--ink-sub); }
+.bot { margin-top: 16px; display: flex; gap: 16px; align-items: center; font-size: 14.5px; }
+.bot b { color: var(--gold); white-space: nowrap; font-size: 15.5px; }
+</style></head><body>
+<div class="title">キーポリシーは「委任・管理・利用」の3つに分けて書く</div>
+<div class="rule"></div>
+<div class="lead">KMSでは鍵ごとのキーポリシーが出発点。管理できる人とデータを読める人を、文ごとに分けます</div>
+<div class="area">
+  <div class="key"><div class="lb">この本の2つの鍵</div>
+    <div class="nm">DataKey</div><div class="row"><b>対称キー（暗号化用）</b>台帳テーブルとアーティファクトを暗号化。自動ローテーション有効</div>
+    <div class="nm">CaSigningKey</div><div class="row"><b>非対称キー（署名用）</b><code>ECC_NIST_P256</code> / <code>SIGN_VERIFY</code>。種類は作成後に変えられない</div>
+    <div class="row"><b>共通の削除対策</b>RETAIN と30日の削除待機期間</div>
+  </div>
+  <div class="stmts">
+    <div class="st"><div class="no" style="background:var(--navy-dark)">1</div><div class="bd"><div class="who"><div class="h">アカウントへの委任</div><code>arn:aws:iam::111122223333:root</code></div><div class="acts ok"><span>kms:*</span></div><div class="memo">IAMポリシーで権限を配れるようにする。ないとIAM側の許可が効かない</div></div></div>
+    <div class="st"><div class="no" style="background:var(--blue-vivid)">2</div><div class="bd"><div class="who"><div class="h">鍵の管理者</div><code>KeyAdmin ロール</code></div><div class="acts"><span style="background:#edf7f1;color:var(--green);border:1px solid #b7dcc4">Put* / Update*</span><span style="background:#edf7f1;color:var(--green);border:1px solid #b7dcc4">ScheduleKeyDeletion</span><span style="background:#fdf0f1;color:var(--red);border:1px solid #f0c2c7">Decrypt ×</span><span style="background:#fdf0f1;color:var(--red);border:1px solid #f0c2c7">Sign ×</span></div><div class="memo">設定は変えられるが、データは読めない</div></div></div>
+    <div class="st"><div class="no" style="background:var(--blue-sky)">3</div><div class="bd"><div class="who"><div class="h">鍵の利用者</div><code>アプリの実行ロール</code></div><div class="acts"><span style="background:#edf7f1;color:var(--green);border:1px solid #b7dcc4">Encrypt / Decrypt</span><span style="background:#edf7f1;color:var(--green);border:1px solid #b7dcc4">Sign / GetPublicKey</span><span style="background:#fdf0f1;color:var(--red);border:1px solid #f0c2c7">PutKeyPolicy ×</span></div><div class="memo">使うだけ。署名用Lambdaは Sign と GetPublicKey の2つに限定</div></div></div>
+  </div>
+</div>
+<div class="band bot"><b>CDKでは</b>委任の文は自動で入り、管理者は <code style="font-family:Consolas,monospace">admins</code>、利用者は <code style="font-family:Consolas,monospace">key.grant()</code> で利用側のIAMポリシーに追加されます</div>
+</body></html>

@@ -1,0 +1,46 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.layers { flex: 1.4; display: flex; flex-direction: column; gap: 12px; justify-content: center; }
+.ly { display: flex; align-items: stretch; gap: 12px; }
+.ly .tag { width: 108px; flex: none; border-radius: 10px; color: #fff; font-weight: 800; font-size: 16px; display: flex; flex-direction: column; justify-content: center; align-items: center; line-height: 1.3; }
+.ly .tag span { font-size: 11.5px; font-weight: 400; opacity: .9; }
+.ly .bd { flex: 1; background: var(--paper); border: 1.5px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.ly .bd .ex { font-size: 14.5px; font-weight: 700; color: var(--navy-darkest); }
+.ly .bd .ex code { font-family: Consolas, monospace; font-size: 12.5px; color: var(--blue-vivid); margin-left: 6px; }
+.ly .bd .nt { font-size: 13.5px; color: var(--ink-sub); line-height: 1.5; }
+.ly .fq { width: 88px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 700; border-radius: 10px; background: var(--band); }
+.hdr { display: flex; gap: 12px; font-size: 12px; font-weight: 700; color: var(--ink-sub); }
+.hdr span:first-child { width: 108px; } .hdr span:nth-child(2) { flex: 1; } .hdr span:last-child { width: 88px; text-align: center; }
+.up { text-align: center; font-size: 12px; color: var(--blue-vivid); font-weight: 700; margin-left: 120px; margin-right: 100px; }
+.guard { flex: 1; display: flex; flex-direction: column; gap: 9px; justify-content: space-between; }
+.gi { display: flex; gap: 10px; align-items: flex-start; }
+.gi .ic { width: 26px; height: 26px; flex: none; border-radius: 6px; background: #eef6fd; border: 1px solid #b9dcf5; color: var(--blue-vivid); font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+.gi div { font-size: 14px; line-height: 1.5; }
+.gi b { display: block; font-size: 14.5px; color: var(--navy-darkest); }
+.gi code { font-family: Consolas, monospace; font-size: 12px; }
+.rule2 { margin-top: 16px; display: flex; gap: 16px; align-items: center; font-size: 14.5px; }
+.rule2 b { color: var(--gold); font-size: 15.5px; white-space: nowrap; }
+</style></head><body>
+<div class="title">スタックは「変わる速さ」で分け、依存は一方向にする</div>
+<div class="rule"></div>
+<div class="lead">よく変わる層は何度作り直しても困らないように、データと鍵の層は削除から厚く守ります</div>
+<div class="area">
+  <div class="card layers">
+    <div class="hdr"><span>層</span><span>サンプルでの例と注意点</span><span>変更頻度</span></div>
+    <div class="ly"><div class="tag" style="background:var(--blue-sky)">デリバリー<span>他を更新する</span></div><div class="bd"><div class="ex">CodePipeline・CodeBuild<code>PipelineStack</code></div><div class="nt">他のスタックを更新する権限を持つので、変更は慎重に</div></div><div class="fq">低い</div></div>
+    <div class="ly"><div class="tag" style="background:var(--blue-vivid)">アプリ<span>作り直せる</span></div><div class="bd"><div class="ex">Lambda・API Gateway<code>CertIssuerStack</code></div><div class="nt">頻繁に変わる。物理名を固定せず、置換されても困らない形に</div></div><div class="fq" style="background:#fff6cc">高い</div></div>
+    <div class="up">↑ 上の層が下の層を参照する（逆向きの参照は作らない）</div>
+    <div class="ly"><div class="tag" style="background:var(--navy-dark)">データ<span>消えると戻らない</span></div><div class="bd"><div class="ex">DynamoDB・S3<code>CertIssuerStack</code></div><div class="nt">RemovalPolicy.RETAIN とバックアップ（PITR・バージョニング）</div></div><div class="fq">低い</div></div>
+    <div class="ly"><div class="tag" style="background:var(--navy-darkest)">基盤<span>影響が最大</span></div><div class="bd"><div class="ex">KMS の鍵・VPC<code>KmsStack</code></div><div class="nt">鍵を消すと、暗号化したデータがすべて読めなくなる</div></div><div class="fq">低い</div></div>
+  </div>
+  <div class="card guard">
+    <div class="h">運用で効く5つの備え</div>
+    <div class="gi"><div class="ic">1</div><div><b>削除と置換から守る</b>DeletionPolicy・UpdateReplacePolicy・終了保護</div></div>
+    <div class="gi"><div class="ic">2</div><div><b>論理 ID を変えない</b>Construct の id 変更は作り直しになる</div></div>
+    <div class="gi"><div class="ic">3</div><div><b>ドリフトを検出する</b><code>detect-stack-drift</code> で手作業の変更を見つける</div></div>
+    <div class="gi"><div class="ic">4</div><div><b>シークレットは書かない</b>Secrets Manager の動的参照で渡す</div></div>
+    <div class="gi"><div class="ic">5</div><div><b>コストを見える化する</b>タグで配分し、鍵やCAの月額を把握する</div></div>
+  </div>
+</div>
+<div class="band rule2"><b>原則</b>変更は変更セットで差分を確かめ、人が承認してから反映する（9章のパイプライン）</div>
+</body></html>

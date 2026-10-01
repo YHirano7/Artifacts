@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>運用で困らないIaCの設計 | AWSで学ぶ Infrastructure as Code 実践入門</title>
+<meta name="description" content="スタック分割、ドリフト、削除保護、シークレット管理、コストなど、運用で効く設計の勘所をまとめます。">
+<link rel="stylesheet" href="../assets/book.css">
+<script>document.documentElement.className += " js";</script>
+<script src="../assets/book.js" defer></script>
+</head>
+<body class="page-chapter" data-chapter="10">
+<a class="skip-link" href="#main">本文へスキップ</a>
+<input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="チャプター一覧を開閉">
+<header class="topbar">
+  <label for="nav-toggle" class="menu-btn" title="チャプター一覧"><span class="menu-icon" aria-hidden="true"></span><span class="menu-text">チャプター</span></label>
+  <a class="topbar-title" href="../index.html">AWSで学ぶ Infrastructure as Code 実践入門</a>
+  <span class="topbar-chapter" id="topbar-chapter">Chapter 10</span>
+</header>
+<div class="book-layout">
+  <aside class="book-sidebar" id="sidebar" aria-label="チャプター一覧">
+    <a class="side-book" href="../index.html">
+      <span class="mini-cover" aria-hidden="true"><span class="mini-cover-title">AWS<br>IaC</span></span>
+      <span class="side-book-title">AWSで学ぶ Infrastructure as Code 実践入門</span>
+    </a>
+    <nav>
+      <ol class="chapter-list">
+<li><a href="01-introduction.html"><span class="ch-no">1</span><span class="ch-title">はじめに：この本で身につくこと</span></a></li>
+<li><a href="02-what-is-iac.html"><span class="ch-no">2</span><span class="ch-title">IaCとは何か：手作業の何が問題なのか</span></a></li>
+<li><a href="03-aws-iac-tools.html"><span class="ch-no">3</span><span class="ch-title">AWSのIaCツールを見渡す</span></a></li>
+<li><a href="04-cloudformation-basics.html"><span class="ch-no">4</span><span class="ch-title">CloudFormationの基本を押さえる</span></a></li>
+<li><a href="05-cdk-basics.html"><span class="ch-no">5</span><span class="ch-title">AWS CDKでインフラをプログラミングする</span></a></li>
+<li><a href="06-iam-as-code.html"><span class="ch-no">6</span><span class="ch-title">IAMをコードで設計する</span></a></li>
+<li><a href="07-kms-key-management.html"><span class="ch-no">7</span><span class="ch-title">実践1：KMSの鍵をIaCで管理する</span></a></li>
+<li><a href="08-mtls-cert-issuer.html"><span class="ch-no">8</span><span class="ch-title">実践2：mTLS用クライアント証明書を発行するLambda</span></a></li>
+<li><a href="09-code-pipeline.html"><span class="ch-no">9</span><span class="ch-title">実践3：CodeシリーズでIaCのデプロイを自動化する</span></a></li>
+<li><a href="10-operations-design.html" aria-current="page"><span class="ch-no">10</span><span class="ch-title">運用で困らないIaCの設計</span></a></li>
+<li><a href="11-next-steps.html"><span class="ch-no">11</span><span class="ch-title">おわりに：次に学ぶこと</span></a></li>
+      </ol>
+    </nav>
+  </aside>
+  <label for="nav-toggle" class="scrim" aria-hidden="true"></label>
+  <main id="main" class="book-main" tabindex="-1">
+    <article class="chapter-card">
+      <header class="chapter-head">
+        <p class="chapter-label">Chapter 10</p>
+        <h1 class="chapter-title">運用で困らないIaCの設計</h1>
+        <p class="chapter-meta">読了目安 約9分</p>
+        <details class="toc-inline">
+          <summary>このチャプターの目次</summary>
+<ol class="toc"><li><a href="#s10-1">この章で分かること</a></li><li><a href="#s10-2">作ってからが本番</a></li><li><a href="#s10-3">スタックの分け方</a><ol><li><a href="#s10-4">スタック間の参照に気をつける</a></li></ol></li><li><a href="#s10-5">データを持つリソースを守る</a><ol><li><a href="#s10-6">物理名を固定しない</a></li></ol></li><li><a href="#s10-7">CDK の論理 ID を意識する</a></li><li><a href="#s10-8">ドリフトに備える</a></li><li><a href="#s10-9">シークレットを扱う</a></li><li><a href="#s10-10">コストを見える化する</a></li><li><a href="#s10-11">変更を安全に届ける</a></li><li><a href="#s10-12">まとめ</a></li><li><a href="#s10-13">確認問題</a></li></ol>
+        </details>
+      </header>
+      <div class="chapter-body znc">
+<h2 id="s10-1">この章で分かること</h2>
+<ul>
+<li>スタックをどう分けると、変更の影響範囲を小さくできるのか</li>
+<li>データを持つリソースを、IaC の操作ミスから守る方法</li>
+<li>ドリフト、シークレット、コスト、CDK の論理 ID など、運用に入ってから効いてくる論点</li>
+</ul>
+<h2 id="s10-2">作ってからが本番</h2>
+<p>IaC のコードは、一度書いたら終わりではありません。むしろ、何年も変更を重ねていく中で真価が問われます。運用が始まると、次のような悩みが出てきます。</p>
+<ul>
+<li>小さな変更のつもりが、関係ないリソースまで差分に出てきて怖い</li>
+<li>リファクタリングしたら、データベースが作り直されそうになった</li>
+<li>誰かがコンソールで設定を変えていて、デプロイが失敗した</li>
+</ul>
+<p>この章では、こうした問題を設計の段階で減らすための勘所をまとめます。</p>
+<h2 id="s10-3">スタックの分け方</h2>
+<p>一つのスタックにすべてを詰め込むと、どんな小さな変更も全体の差分として扱われます。失敗したときのロールバックも全体に及びます。かといって細かく分けすぎると、スタック間の依存関係の管理が大変になります。</p>
+<p>分けるときの軸は、<strong>ライフサイクル</strong>（変更の頻度と寿命）と <strong>責任範囲</strong>（誰が変更するか）の二つです。</p><figure class="fig"><img src="../images/ch10-stack-design.png" alt="スタック分割の考え方：変更頻度とデータの有無で層を分け、依存は下から上への一方向にする" loading="lazy" width="1280" height="720"><figcaption>スタック分割の考え方：変更頻度とデータの有無で層を分け、依存は下から上への一方向にする</figcaption></figure><div class="table-wrap"><table>
+<thead>
+<tr>
+<th>層</th>
+<th>例</th>
+<th>変更頻度</th>
+<th>注意点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>基盤</td>
+<td>VPC、KMS の鍵</td>
+<td>低い</td>
+<td>削除すると影響が大きい。保護を厚くする</td>
+</tr>
+<tr>
+<td>データ</td>
+<td>DynamoDB、S3、RDS</td>
+<td>低い</td>
+<td>置き換えでデータが消える。削除ポリシー必須</td>
+</tr>
+<tr>
+<td>アプリ</td>
+<td>Lambda、API Gateway</td>
+<td>高い</td>
+<td>何度作り直しても困らない状態を保つ</td>
+</tr>
+<tr>
+<td>デリバリー</td>
+<td>CodePipeline</td>
+<td>低い</td>
+<td>他のスタックを更新する権限を持つので慎重に</td>
+</tr>
+</tbody>
+</table></div>
+<p>この本のサンプルも、この考え方で <code>KmsStack</code>（基盤）、<code>CertIssuerStack</code>（データとアプリ）、<code>PipelineStack</code>（デリバリー）に分けています。依存の向きは「アプリが基盤を参照する」の一方向にし、基盤がアプリを参照しないようにします。</p>
+<h3 id="s10-4">スタック間の参照に気をつける</h3>
+<p>CloudFormation では、あるスタックの出力を別のスタックが <code>Fn::ImportValue</code> で参照できます。CDK でも、スタックをまたいでオブジェクトを渡すと、この仕組みが自動で使われます。</p>
+<p>ただし、参照されている出力は、参照している側が存在する限り変更も削除もできません。参照元のリソースを作り直したくても、先に参照している側を直す必要があり、手順が複雑になります。頻繁に変わる値は、SSM パラメータストアに書き込んで参照先で読む、あるいは ARN などの固定値をパラメータとして渡す、といった方法でゆるく結合するのも手です。</p>
+<h2 id="s10-5">データを持つリソースを守る</h2>
+<p>IaC で最も避けたい事故は、データを持つリソースの削除や置き換えです。CloudFormation には、これを防ぐための仕組みが複数あります。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>仕組み</th>
+<th>守るもの</th>
+<th>設定例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DeletionPolicy: Retain</code></td>
+<td>スタックからリソースを外したときや、スタックを削除したとき</td>
+<td>テンプレートのリソースに付ける</td>
+</tr>
+<tr>
+<td><code>UpdateReplacePolicy: Retain</code></td>
+<td>置き換えで古いリソースが削除されるとき</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>削除保護（termination protection）</td>
+<td>スタックそのものの削除</td>
+<td>スタックの設定で有効にする</td>
+</tr>
+<tr>
+<td>スタックポリシー</td>
+<td>特定リソースの更新・置き換え</td>
+<td>スタックに JSON で設定する</td>
+</tr>
+</tbody>
+</table></div>
+<p>CDK では、<code>removalPolicy: RemovalPolicy.RETAIN</code> を指定すると、<code>DeletionPolicy</code> と <code>UpdateReplacePolicy</code> の両方に <code>Retain</code> が設定されます。KMS の鍵、DynamoDB テーブル、S3 バケットのように、中身を失うと取り返しがつかないリソースには必ず付けましょう。</p><aside class="msg msg-alert"><div class="msg-body"><p><code>Retain</code> にしたリソースは、スタックを削除しても AWS 上に残り、料金も発生し続けます。検証が終わったら、残ったリソースを手動で片付ける手順も用意しておいてください。</p></div></aside><h3 id="s10-6">物理名を固定しない</h3>
+<p><code>bucketName: 'my-app-data'</code> のように、リソースの名前（物理名）を固定すると、置き換えが必要な変更のときに困ります。CloudFormation は「新しいリソースを作ってから古いものを消す」順で置き換えるため、同じ名前のリソースを同時に二つ作れず、更新が失敗します。名前は CloudFormation に自動で付けさせ、必要な場所には出力やパラメータで渡すのが安全です。</p>
+<h2 id="s10-7">CDK の論理 ID を意識する</h2>
+<p>CloudFormation は、テンプレート内の <strong>論理 ID</strong> でリソースを識別します。論理 ID が変わると、CloudFormation は「古いリソースを消して、新しいリソースを作る」と解釈します。</p>
+<p>CDK の論理 ID は、Construct のツリー上のパス（<code>new Bucket(this, 'Data')</code> の <code>'Data'</code> や、その親の ID）から自動で決まります。そのため、次のようなリファクタリングだけで論理 ID が変わってしまいます。</p>
+<ul>
+<li>Construct の ID を <code>'Data'</code> から <code>'DataBucket'</code> に変えた</li>
+<li>バケットを別の Construct の中に移動した</li>
+</ul>
+<p>コードの見た目だけを整えたつもりが、データを持つリソースの置き換えにつながるわけです。対策は次のとおりです。</p>
+<ul>
+<li>デプロイ前に必ず <code>cdk diff</code> を見て、<code>[-]</code> と <code>[+]</code> の組み合わせ（置き換え）がないか確かめる</li>
+<li>データを持つリソースの Construct ID は、一度決めたら変えない</li>
+<li>どうしても変えるときは、<code>(bucket.node.defaultChild as CfnBucket).overrideLogicalId('DataXXXX')</code> で元の論理 ID を固定する</li>
+</ul>
+<p>CloudFormation には、リソースを削除せずに論理 ID を変えたり、別のスタックへ移したりする「スタックのリファクタリング」機能もあります。大がかりな整理が必要になったら、公式ドキュメントで使い方を確認してください。</p>
+<h2 id="s10-8">ドリフトに備える</h2>
+<p>IaC を導入しても、緊急対応などでコンソールから設定を変えることはあり得ます。そうして生まれたコードと実環境のずれ（ドリフト）は、CloudFormation のドリフト検出で見つけられます。</p><div class="code-block"><pre class="hl"><code class="language-bash">aws<span class="w"> </span>cloudformation<span class="w"> </span>detect-stack-drift<span class="w"> </span>--stack-name<span class="w"> </span>CertIssuerStack
+aws<span class="w"> </span>cloudformation<span class="w"> </span>describe-stack-resource-drifts<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--stack-name<span class="w"> </span>CertIssuerStack<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--stack-resource-drift-status-filters<span class="w"> </span>MODIFIED<span class="w"> </span>DELETED
+</code></pre></div><p>ドリフトを見つけたら、「実環境の変更をコードに取り込む」か「コードの内容で上書きする」かを決めます。どちらにしても、最後はコードが正しい状態に戻すのが原則です。定期的にドリフト検出を実行し、結果を通知する仕組みを作っておくと安心です。</p>
+<h2 id="s10-9">シークレットを扱う</h2>
+<p>パスワードや API キーは、テンプレートやソースコードに直接書いてはいけません。Secrets Manager に保管し、テンプレートからは <strong>動的参照</strong> で読み込みます。</p><div class="code-block"><div class="code-file">動的参照の例</div><pre class="hl"><code class="language-yaml"><span class="nt">MasterUserPassword</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{{resolve:secretsmanager:app/db-credentials:SecretString:password}}&#39;</span>
+</code></pre></div><p>CDK なら <code>SecretValue.secretsManager('app/db-credentials', { jsonField: 'password' })</code> と書けます。どちらの場合も、テンプレートに残るのは参照だけで、値そのものは含まれません。</p><aside class="msg msg-info"><div class="msg-body"><p>Lambda 関数の環境変数も、コンソールやテンプレートから誰でも読めます。シークレットを環境変数に入れず、関数の実行時に Secrets Manager から取得するほうが安全です。</p></div></aside><h2 id="s10-10">コストを見える化する</h2>
+<p>IaC でリソースを作るのは簡単です。簡単だからこそ、作ったまま忘れたリソースが料金を生み続けがちです。</p>
+<ul>
+<li><strong>タグを一括で付ける</strong>：CDK では <code>Tags.of(app).add('Project', 'iac-book')</code> と書くと、アプリ内のタグ付け可能なリソースすべてにタグが付きます。請求コンソールでコスト配分タグとして有効にすると、タグ単位で料金を集計できます。</li>
+<li><strong>固定費のかかるリソースを把握する</strong>：KMS のカスタマーマネージドキーは1本あたり月額 1 USD かかります（2026年9月確認）。AWS Private CA は汎用モードで CA 1つあたり月額 400 USD です。8章で Private CA ではなく KMS を CA の鍵に使う理由の一つがここにあります。</li>
+<li><strong>後片付けの手順もコードの一部と考える</strong>：<code>Retain</code> にしたリソースの削除手順は、README に書いておきます。</li>
+</ul>
+<h2 id="s10-11">変更を安全に届ける</h2>
+<p>最後に、日々の変更の流れについてです。この本では、次の流れを推奨しています。</p>
+<ol>
+<li>プルリクエストでコードをレビューする</li>
+<li>CI でテストと <code>cdk synth</code>、静的チェックを実行する</li>
+<li>変更セットを作成し、差分（特に置き換えと削除）を人が確認する</li>
+<li>承認してから変更セットを実行する</li>
+</ol>
+<p>9章のパイプラインは、この流れをそのまま自動化したものです。手作業で <code>cdk deploy</code> を実行する場合でも、<code>--method=prepare-change-set</code> で変更セットだけを作り、中身を確認してから実行する習慣を付けておくと事故を減らせます。</p>
+<h2 id="s10-12">まとめ</h2>
+<ul>
+<li>スタックはライフサイクルと責任範囲で分け、依存は一方向にします。</li>
+<li>データを持つリソースには <code>Retain</code> を付け、物理名は固定しないようにします。</li>
+<li>CDK では Construct の ID やツリーの位置で論理 ID が決まるため、リファクタリングで置き換えが起きないよう <code>cdk diff</code> で確認します。</li>
+<li>ドリフト検出、シークレットの動的参照、タグによるコスト管理を運用に組み込みます。</li>
+</ul>
+<h2 id="s10-13">確認問題</h2>
+<p><strong>問1.</strong> CDK でバケットを別の Construct の中に移動したところ、<code>cdk diff</code> にバケットの削除と作成が表示されました。なぜですか。どう対処しますか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>CDK の論理 ID は Construct ツリー上のパスから決まるため、移動によって論理 ID が変わり、CloudFormation が別のリソースとして扱ったからです。データを持つバケットなら移動をやめるか、<code>overrideLogicalId</code> で元の論理 ID を固定します。デプロイ前に <code>cdk diff</code> で気づけたこと自体が重要です。</p></div></details><p><strong>問2.</strong> DynamoDB テーブルの物理名をコードで固定しない方がよいのはなぜですか。</p><details class="acc"><summary>解答</summary><div class="acc-body"><p>置き換えが必要な変更（たとえばキーの変更）をしたとき、CloudFormation は新しいテーブルを作ってから古いテーブルを削除します。物理名が固定されていると、同じ名前のテーブルを同時に作れないため更新が失敗します。名前は自動で付けさせ、アプリには環境変数などで渡します。</p></div></details><p><strong>問3.</strong> データベースのパスワードをテンプレートに書かずに渡すには、どうすればよいですか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>Secrets Manager にパスワードを保管し、テンプレートからは <code>{{resolve:secretsmanager:...}}</code> の動的参照で読み込みます。CDK では <code>SecretValue.secretsManager()</code> を使います。テンプレートや Git の履歴には参照だけが残り、値は含まれません。</p></div></details>
+      </div>
+    </article>
+    <nav class="pager" aria-label="チャプター移動">
+<a class="pager-link prev" href="09-code-pipeline.html" rel="prev"><span class="pager-dir">← 前のチャプター</span><span class="pager-title">実践3：CodeシリーズでIaCのデプロイを自動化する</span></a>
+<a class="pager-link next" href="11-next-steps.html" rel="next"><span class="pager-dir">次のチャプター →</span><span class="pager-title">おわりに：次に学ぶこと</span></a>
+    </nav>
+  </main>
+  <aside class="page-toc" id="page-toc" aria-label="このチャプターの目次">
+    <div class="toc-card">
+      <p class="toc-heading">目次</p>
+<ol class="toc"><li><a href="#s10-1">この章で分かること</a></li><li><a href="#s10-2">作ってからが本番</a></li><li><a href="#s10-3">スタックの分け方</a><ol><li><a href="#s10-4">スタック間の参照に気をつける</a></li></ol></li><li><a href="#s10-5">データを持つリソースを守る</a><ol><li><a href="#s10-6">物理名を固定しない</a></li></ol></li><li><a href="#s10-7">CDK の論理 ID を意識する</a></li><li><a href="#s10-8">ドリフトに備える</a></li><li><a href="#s10-9">シークレットを扱う</a></li><li><a href="#s10-10">コストを見える化する</a></li><li><a href="#s10-11">変更を安全に届ける</a></li><li><a href="#s10-12">まとめ</a></li><li><a href="#s10-13">確認問題</a></li></ol>
+    </div>
+  </aside>
+</div>
+<footer class="site-footer">
+  <p>AWSで学ぶ Infrastructure as Code 実践入門 ／ 最終更新 2026-09-29</p>
+  <p class="footer-note">記載のサービス仕様・料金は執筆時点のものです。実装前に AWS 公式ドキュメントで最新情報を確認してください。</p>
+</footer>
+</body>
+</html>

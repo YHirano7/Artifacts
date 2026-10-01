@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWSで学ぶ Infrastructure as Code 実践入門</title>
+<meta name="description" content="AWS のリソースを、コンソールでの手作業ではなくコードで管理するための入門書です。CloudFormation と AWS CDK の基本を押さえたうえで、実務でよく出てくる三つの題材を最後まで作り切ります。 KMS：データ暗号化用の鍵と">
+<link rel="stylesheet" href="assets/book.css">
+<script>document.documentElement.className += " js";</script>
+<script src="assets/book.js" defer></script>
+</head>
+<body class="page-index">
+<a class="skip-link" href="#main">本文へスキップ</a>
+<main id="main" class="index-main" tabindex="-1">
+  <section class="book-hero">
+    <div class="book-cover" aria-hidden="true">
+      <div class="cover-inner">
+        <span class="cover-kicker">Infrastructure as Code</span>
+        <span class="cover-title">AWSで学ぶ<br>IaC<br>実践入門</span>
+        <span class="cover-sub">CloudFormation / CDK<br>KMS・mTLS・Codeシリーズ</span>
+        <span class="cover-grid"></span>
+      </div>
+    </div>
+    <div class="book-info">
+      <p class="book-kicker">本</p>
+      <h1 class="book-title">AWSで学ぶ Infrastructure as Code 実践入門</h1>
+      <p class="book-subtitle">CloudFormation と CDK の基本から、KMS・mTLS・Codeシリーズを使った実務のサンプルまで</p>
+      <ul class="book-meta">
+        <li><span class="meta-key">チャプター</span><span class="meta-val">11</span></li>
+        <li><span class="meta-key">読了目安</span><span class="meta-val">約1時間50分</span></li>
+        <li><span class="meta-key">最終更新</span><span class="meta-val">2026-09-29</span></li>
+      </ul>
+      <p class="book-actions"><a class="btn-primary" href="chapters/01-introduction.html">本を読む</a><a class="btn-ghost" href="#chapters">チャプター一覧</a></p>
+    </div>
+  </section>
+  <section class="book-about">
+    <h2 class="index-h2">この本について</h2>
+    <div class="about-body znc">
+<p>AWS のリソースを、コンソールでの手作業ではなくコードで管理するための入門書です。CloudFormation と AWS CDK の基本を押さえたうえで、実務でよく出てくる三つの題材を最後まで作り切ります。</p>
+<ul>
+<li><strong>KMS</strong>：データ暗号化用の鍵と、署名専用の鍵をコードで管理する</li>
+<li><strong>mTLS</strong>：クライアント証明書を発行する Lambda と、証明書で認証する API を作る</li>
+<li><strong>Codeシリーズ</strong>：CodeCommit・CodeBuild・CodePipeline で、承認付きのデプロイを自動化する</li>
+</ul>
+<p>想定している読者は、アプリケーション開発や運用の経験はあるものの、AWS はまだ初級から中級という方です。IAM やネットワークを完璧に理解している必要はありません。必要な知識はその都度説明します。</p>
+<p>サンプルコードは TypeScript（CDK）と Go（Lambda）で書いています。すべてのサンプルは <code>cdk synth</code> とユニットテストで検証していますが、実際の AWS アカウントへのデプロイは読者の環境で行う前提です。料金やサービスの状況は変わるため、各章に確認日を記しています。</p>
+    </div>
+  </section>
+  <section class="book-chapters" id="chapters">
+    <h2 class="index-h2">チャプター</h2>
+    <ol class="index-chapter-list">
+<li><a href="chapters/01-introduction.html"><span class="ic-no">Chapter 01</span><span class="ic-title">はじめに：この本で身につくこと</span><span class="ic-summary">対象読者、前提知識、この本の読み進め方とサンプルコードの使い方を説明します。</span></a></li>
+<li><a href="chapters/02-what-is-iac.html"><span class="ic-no">Chapter 02</span><span class="ic-title">IaCとは何か：手作業の何が問題なのか</span><span class="ic-summary">コンソール操作で起きる事故を出発点に、IaC が解決することと解決しないことを整理します。</span></a></li>
+<li><a href="chapters/03-aws-iac-tools.html"><span class="ic-no">Chapter 03</span><span class="ic-title">AWSのIaCツールを見渡す</span><span class="ic-summary">CloudFormation、CDK、SAM、Terraform の関係と、どれを選ぶかの判断軸をまとめます。</span></a></li>
+<li><a href="chapters/04-cloudformation-basics.html"><span class="ic-no">Chapter 04</span><span class="ic-title">CloudFormationの基本を押さえる</span><span class="ic-summary">テンプレート・スタック・変更セットの考え方を、S3 バケットのテンプレートで確かめます。</span></a></li>
+<li><a href="chapters/05-cdk-basics.html"><span class="ic-no">Chapter 05</span><span class="ic-title">AWS CDKでインフラをプログラミングする</span><span class="ic-summary">Construct の階層、synth と deploy、ブートストラップ、テストの書き方を学びます。</span></a></li>
+<li><a href="chapters/06-iam-as-code.html"><span class="ic-no">Chapter 06</span><span class="ic-title">IAMをコードで設計する</span><span class="ic-summary">最小権限を IaC で表現する方法と、ポリシー評価のしくみ、よくある落とし穴を扱います。</span></a></li>
+<li><a href="chapters/07-kms-key-management.html"><span class="ic-no">Chapter 07</span><span class="ic-title">実践1：KMSの鍵をIaCで管理する</span><span class="ic-summary">対称キーと署名用の非対称キーを作り、キーポリシーで管理者と利用者を分けます。</span></a></li>
+<li><a href="chapters/08-mtls-cert-issuer.html"><span class="ic-no">Chapter 08</span><span class="ic-title">実践2：mTLS用クライアント証明書を発行するLambda</span><span class="ic-summary">KMS を CA の鍵として使い、証明書を発行する Lambda と mTLS の API をまとめて構築します。</span></a></li>
+<li><a href="chapters/09-code-pipeline.html"><span class="ic-no">Chapter 09</span><span class="ic-title">実践3：CodeシリーズでIaCのデプロイを自動化する</span><span class="ic-summary">CodeCommit・CodeBuild・CodePipeline で、テスト・変更セット・承認を経てデプロイする流れを作ります。</span></a></li>
+<li><a href="chapters/10-operations-design.html"><span class="ic-no">Chapter 10</span><span class="ic-title">運用で困らないIaCの設計</span><span class="ic-summary">スタック分割、ドリフト、削除保護、シークレット管理、コストなど、運用で効く設計の勘所をまとめます。</span></a></li>
+<li><a href="chapters/11-next-steps.html"><span class="ic-no">Chapter 11</span><span class="ic-title">おわりに：次に学ぶこと</span><span class="ic-summary">この本の内容を振り返り、実務で次に取り組むテーマと学習リソースを紹介します。</span></a></li>
+    </ol>
+  </section>
+</main>
+<footer class="site-footer">
+  <p>AWSで学ぶ Infrastructure as Code 実践入門 ／ 最終更新 2026-09-29</p>
+  <p class="footer-note">記載のサービス仕様・料金は執筆時点のものです。実装前に AWS 公式ドキュメントで最新情報を確認してください。</p>
+</footer>
+</body>
+</html>

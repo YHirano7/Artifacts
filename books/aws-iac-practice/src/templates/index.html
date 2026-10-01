@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{book_title}}</title>
+<meta name="description" content="{{book_description_plain}}">
+<link rel="stylesheet" href="assets/book.css">
+<script>document.documentElement.className += " js";</script>
+<script src="assets/book.js" defer></script>
+</head>
+<body class="page-index">
+<a class="skip-link" href="#main">本文へスキップ</a>
+<main id="main" class="index-main" tabindex="-1">
+  <section class="book-hero">
+    <div class="book-cover" aria-hidden="true">
+      <div class="cover-inner">
+        <span class="cover-kicker">Infrastructure as Code</span>
+        <span class="cover-title">AWSで学ぶ<br>IaC<br>実践入門</span>
+        <span class="cover-sub">CloudFormation / CDK<br>KMS・mTLS・Codeシリーズ</span>
+        <span class="cover-grid"></span>
+      </div>
+    </div>
+    <div class="book-info">
+      <p class="book-kicker">本</p>
+      <h1 class="book-title">{{book_title}}</h1>
+      <p class="book-subtitle">{{book_subtitle}}</p>
+      <ul class="book-meta">
+        <li><span class="meta-key">チャプター</span><span class="meta-val">{{chapter_count}}</span></li>
+        <li><span class="meta-key">読了目安</span><span class="meta-val">約{{total_hours}}</span></li>
+        <li><span class="meta-key">最終更新</span><span class="meta-val">{{updated}}</span></li>
+      </ul>
+      <p class="book-actions"><a class="btn-primary" href="{{first_chapter_href}}">本を読む</a><a class="btn-ghost" href="#chapters">チャプター一覧</a></p>
+    </div>
+  </section>
+  <section class="book-about">
+    <h2 class="index-h2">この本について</h2>
+    <div class="about-body znc">
+{{book_description}}
+    </div>
+  </section>
+  <section class="book-chapters" id="chapters">
+    <h2 class="index-h2">チャプター</h2>
+    <ol class="index-chapter-list">
+{{chapter_cards}}
+    </ol>
+  </section>
+</main>
+<footer class="site-footer">
+  <p>{{book_title}} ／ 最終更新 {{updated}}</p>
+  <p class="footer-note">記載のサービス仕様・料金は執筆時点のものです。実装前に AWS 公式ドキュメントで最新情報を確認してください。</p>
+</footer>
+</body>
+</html>
