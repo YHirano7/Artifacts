@@ -1,0 +1,14 @@
+{
+  "title": "静的HTML本の作り方",
+  "subtitle": "Markdown で書いた章を、配布できる一冊の本にするまで",
+  "cover_title": "静的HTML\n本の\n作り方",
+  "mini_cover_title": "HTML本\n入門",
+  "footer_note": "このテンプレートはスキルの雛形です。内容は自分の本に合わせて書き換えてください。",
+  "lang": "ja",
+  "updated": "2026-01-01",
+  "description_file": "about.md",
+  "chapters": [
+    {"file": "01-introduction.md", "slug": "01-introduction", "title": "はじめに：本の作り方の全体像", "summary": "Markdown の章から静的HTMLの本ができるまでの流れを説明します。"},
+    {"file": "02-writing-chapters.md", "slug": "02-writing-chapters", "title": "章を書く：使える記法と検査", "summary": "拡張された Markdown 記法と、ビルド・検査・公開前チェックの使い方を学びます。"}
+  ]
+}

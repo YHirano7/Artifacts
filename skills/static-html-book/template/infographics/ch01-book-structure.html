@@ -1,0 +1,62 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.flow { flex: 1; min-height: 0; display: flex; align-items: stretch; gap: 14px; }
+.box { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 2px; }
+.no { font-size: 12px; font-weight: 800; color: var(--blue-vivid); letter-spacing: .08em; }
+.f { background: var(--band); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; font-size: 13.5px; color: var(--ink); font-family: Consolas, monospace; }
+.f span { color: var(--ink-sub); font-family: "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif; font-size: 12.5px; margin-left: 8px; }
+.sub { font-size: 13px; font-weight: 800; color: var(--navy-dark); margin-top: 8px; }
+.steps { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.steps div { border-left: 4px solid var(--blue-sky); background: #f3f8fd; padding: 6px 10px; font-size: 13px; border-radius: 0 6px 6px 0; }
+.engine { flex: .85; display: flex; flex-direction: column; gap: 10px; }
+.step { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.step .cmd { font-family: Consolas, monospace; font-size: 15px; font-weight: 700; color: var(--navy-darkest); }
+.step .s { margin-top: 3px; }
+.down { align-self: center; width: 22px; height: 14px; }
+.down path { fill: var(--blue-vivid); }
+.out .f { background: #eef6ff; border-color: #bcd7f5; }
+.env { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; }
+.env b { flex: none; width: 112px; font-size: 13px; color: var(--navy-darkest); }
+.env span { font-size: 13px; color: var(--ink); }
+.band { margin-top: 14px; display: flex; align-items: center; gap: 18px; font-size: 15px; }
+.band b { color: #ffe680; }
+</style></head><body>
+<div class="title">本ができるまで：Markdown から、どこでも読める HTML へ</div>
+<div class="rule"></div>
+<div class="lead">書き手が編集するのは src/ だけ。ビルドと検査を通した site/ をそのまま配布します</div>
+<div class="flow">
+  <div class="card box">
+    <div class="head"><div class="no">WRITE</div><div class="h">src/（編集する）</div></div>
+    <div class="f">book.json<span>書名と章の一覧</span></div>
+    <div class="f">chapters/*.md<span>章の本文（拡張 Markdown）</span></div>
+    <div class="f">images/*.png<span>図解（2560×1440）</span></div>
+    <div class="f">templates/ assets/<span>レイアウト・CSS・JS</span></div>
+    <div class="sub">各章の型</div>
+    <div class="steps">
+      <div>この章で分かること</div><div>本文と図解</div>
+      <div>まとめ</div><div>確認問題と解答</div>
+    </div>
+  </div>
+  <svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg>
+  <div class="engine">
+    <div class="card step"><div class="no">BUILD</div><div class="cmd">build.py</div><div class="s">Markdown を HTML にし、目次と章の前後リンクを作る</div></div>
+    <svg class="down" viewBox="0 0 22 14"><path d="M0 0h22L11 14z"/></svg>
+    <div class="card step"><div class="no">CHECK</div><div class="cmd">check.py --strict</div><div class="s">リンク切れ・画像・HTML 構造・章の型</div></div>
+    <svg class="down" viewBox="0 0 22 14"><path d="M0 0h22L11 14z"/></svg>
+    <div class="card step"><div class="no">PUBLIC</div><div class="cmd">public_check.py</div><div class="s">個人情報・実在の ID・許可外の URL</div></div>
+  </div>
+  <svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg>
+  <div class="card box out">
+    <div class="head"><div class="no">SHIP</div><div class="h">site/（配布する）</div></div>
+    <div class="f">index.html<span>トップページ</span></div>
+    <div class="f">chapters/*.html<span>各章</span></div>
+    <div class="sub">読者の環境ごとの動き</div>
+    <div class="env"><b>HTTP + JS</b><span>再読み込みなしで章を切り替え</span></div>
+    <div class="env"><b>file:// + JS</b><span>通常のリンクで章を移動</span></div>
+    <div class="env"><b>JS 無効</b><span>リンクで移動、details で開閉</span></div>
+    <div class="env"><b>スマホ幅</b><span>1列表示、メニューから章を選ぶ</span></div>
+  </div>
+</div>
+<div class="band"><b>外部依存なし</b><span>CDN・外部画像・Web フォントを使わず、リンクはすべて相対パス。サーバーがなくても読めます</span></div>
+</body></html>
