@@ -85,7 +85,7 @@ Resources: ...
 
 `python tools/build.py --format single` で、章ごとのページの代わりに `<out>/index.html` 1枚（CSS・JavaScript 埋め込み）と `<out>/images/` を出力する。追加で必要なファイル（スキルの `template/src` に入っている）:
 
-- `src/templates/single.html`：単一ページの外枠。`{{cover}}`・`{{chapters}}`・`{{page_tocs}}`・`{{inline_css}}`・`{{inline_js}}` などのプレースホルダを使う
+- `src/templates/single.html`：単一ページの外枠。`{{cover}}`・`{{chapters}}`・`{{page_tocs}}`・`{{side_book}}`・`{{footer}}`・`{{inline_css}}`・`{{inline_js}}` などのプレースホルダを使う。`{{side_book}}`（ミニ表紙つきのサイドバーリンク）と `{{footer}}`（サイトフッター）は chapter.html からレンダリングした1章目のページから取り込むので、本ごとのカスタマイズがそのまま反映される
 - `src/assets/book-single.css`：`book.css` のあとに結合して埋め込む追加スタイル
 - `src/assets/book-single.js`：ハッシュ（`#ch-<slug>`、`#top`）で章・表紙を切り替えるスクリプト。fetch は使わないので `file://` でも動く
 

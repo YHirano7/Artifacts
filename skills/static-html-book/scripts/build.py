@@ -407,6 +407,8 @@ def render_index(src_dir, md, tpl_index, meta, disp, chapters, total_minutes):
 
 ARTICLE_RE = re.compile(r'<article class="chapter-card">.*</article>', re.S)
 MAIN_INNER_RE = re.compile(r"<main\b[^>]*>(.*)</main>", re.S)
+SIDE_BOOK_RE = re.compile(r'<a class="side-book"[^>]*>.*?</a>', re.S)
+FOOTER_RE = re.compile(r'<footer class="site-footer"[^>]*>.*?</footer>', re.S)
 LINK_ATTR = re.compile(r'(href|src)="([^"]*)"')
 HTML_PATH = re.compile(r"^(?:\.\./)?(?:chapters/)?([^/]+)\.html$")
 IMG_PATH = re.compile(r"^(?:\.\./)?(images/.+)$")
@@ -469,6 +471,19 @@ def build_single(src_dir, out_dir, meta, disp, chapters, rendered, index_html):
     slugs = {ch["slug"] for ch in chapters}
     book_title = meta["title"]
 
+    # サイドバーの表紙リンクとフッターは章テンプレート側から取り込む
+    first_page = rendered[0][3]
+    m = SIDE_BOOK_RE.search(first_page)
+    if not m:
+        die("chapter テンプレートの出力に <a class=\"side-book\"> が見つかりません"
+            "（src/templates/chapter.html を確認）")
+    side_book = rewrite_refs(m.group(0), slugs, "side-book")
+    m = FOOTER_RE.search(first_page)
+    if not m:
+        die("chapter テンプレートの出力に <footer class=\"site-footer\"> が見つかりません"
+            "（src/templates/chapter.html を確認）")
+    footer = rewrite_refs(m.group(0), slugs, "site-footer")
+
     # 表紙: index.html の <main> の中身
     m = MAIN_INNER_RE.search(index_html)
     if not m:
@@ -500,9 +515,8 @@ def build_single(src_dir, out_dir, meta, disp, chapters, rendered, index_html):
         "lang": disp["lang"],
         "book_title": disp["book_title"],
         "book_description_plain": substitute_index_plain(index_html),
-        "mini_cover_title": disp["mini_cover_title"],
-        "footer_note_html": disp["footer_note_html"],
-        "updated": disp["updated"],
+        "side_book": side_book,
+        "footer": footer,
         "chapter_list": rewrite_refs(chapter_list_single(chapters), slugs, "chapter_list"),
         "cover": cover,
         "chapters": "\n".join(sections),

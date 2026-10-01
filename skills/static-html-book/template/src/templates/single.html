@@ -21,10 +21,7 @@
 </section>
 <div class="book-layout">
   <aside class="book-sidebar" id="sidebar" aria-label="チャプター一覧">
-    <a class="side-book" href="#top">
-      <span class="mini-cover" aria-hidden="true"><span class="mini-cover-title">{{mini_cover_title}}</span></span>
-      <span class="side-book-title">{{book_title}}</span>
-    </a>
+{{side_book}}
     <nav>
       <ol class="chapter-list">
 {{chapter_list}}
@@ -39,10 +36,7 @@
 {{page_tocs}}
   </aside>
 </div>
-<footer class="site-footer">
-  <p>{{book_title}} ／ 最終更新 {{updated}}</p>
-{{footer_note_html}}
-</footer>
+{{footer}}
 <script>{{inline_js}}</script>
 </body>
 </html>

@@ -100,6 +100,24 @@ class TemplateBookTest(unittest.TestCase):
         self.assertIn('href="#ch-01-introduction"', doc)
         self.assertIn('href="#s1-1"', doc)
 
+    def test_single_format_takes_sidebar_and_footer_from_chapter_template(self):
+        book = self.tmp / "book-brand"
+        shutil.copytree(TEMPLATE, book)
+        tpl = book / "src" / "templates" / "chapter.html"
+        t = tpl.read_text(encoding="utf-8")
+        t = t.replace("<span class=\"mini-cover-title\">{{mini_cover_title}}</span>",
+                      "<span class=\"mini-cover-title\">ZZ<br>QQ</span>")
+        t = t.replace("{{footer_note_html}}",
+                      '<p class="footer-note">custom-note</p>')
+        tpl.write_text(t, encoding="utf-8")
+        single = self.tmp / "single-brand"
+        r = run([SCRIPTS / "build.py", "--book", book, "--format", "single",
+                 "--out", single], book)
+        self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+        doc = (single / "index.html").read_text(encoding="utf-8")
+        self.assertIn("ZZ<br>QQ", doc)
+        self.assertIn("custom-note", doc)
+
     def test_single_format_rejects_unknown_relative_link(self):
         book = self.tmp / "book-badlink"
         shutil.copytree(TEMPLATE, book)
