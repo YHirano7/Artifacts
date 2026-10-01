@@ -1,0 +1,31 @@
+yomiyasu (reorganized)
+
+This skill is licensed under the MIT License (see LICENSE).
+It is a modified version of:
+
+  yomiyasu
+  https://github.com/nanaism/yomiyasu
+  (commit 30ee6041c328ce21d38a7963f667e079a93d7a12)
+  Copyright (c) 2026 nanaism
+
+Changes made in this version (2026-09-30):
+
+- Repackaged as a single skill directory with exactly one SKILL.md.
+  The duplicated copy under skills/yomiyasu/ and the plugin and
+  marketplace manifests of the original repository were removed so the
+  directory can be loaded by any agent tool that reads SKILL.md.
+- SKILL.md frontmatter was reduced to name and description. The
+  argument hint was moved into the body (Step 1), and the lint command
+  in Step 3 now resolves the script relative to the SKILL.md directory
+  instead of a tool-specific environment variable, with python/py
+  alternatives and a manual fallback.
+- references/gemini-syntax.md was renamed to
+  references/syntax-principles.md; its content is unchanged.
+- scripts/yomiyasu_lint.py now forces UTF-8 output, accepts UTF-8 files
+  with a BOM, and normalizes CRLF line endings, so it behaves the same
+  on Windows, macOS and Linux.
+- README, articles, evals, the benchmark corpus and its build scripts,
+  and the logo image were not included.
+- Unit tests (tests/) were added.
+
+This skill is not an official product of ALGO ARTIS.
