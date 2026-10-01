@@ -1,0 +1,59 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.area { flex-direction: column; gap: 16px; }
+.flow { display: flex; gap: 8px; align-items: stretch; }
+.stg { flex: 1; background: var(--paper); border: 1.5px solid var(--line); border-radius: 12px; padding: 14px 14px 12px; display: flex; flex-direction: column; gap: 6px; }
+.stg .n { font-size: 12px; font-weight: 800; color: var(--blue-vivid); letter-spacing: .04em; }
+.stg .h { font-size: 19px; }
+.stg .svc { font-size: 12.5px; font-weight: 700; color: #fff; background: var(--navy-dark); border-radius: 99px; padding: 3px 10px; align-self: flex-start; }
+.stg ul { margin: 4px 0 0; padding-left: 16px; font-size: 13px; line-height: 1.6; color: var(--ink-sub); }
+.stg code { font-family: Consolas, monospace; font-size: 12px; color: var(--navy-dark); }
+.stg.human { border: 2px solid var(--gold); background: #fffbea; }
+.stg.human .svc { background: var(--gold); color: var(--navy-darkest); }
+.stg.cfn .svc { background: var(--blue-vivid); }
+.ar { width: 20px; flex: none; display: flex; align-items: center; justify-content: center; color: var(--blue-vivid); font-weight: 800; font-size: 20px; }
+.stop { margin-top: auto; font-size: 12px; font-weight: 700; color: var(--red); }
+.row2 { flex: 1; display: flex; gap: 16px; }
+.box { flex: 1; background: var(--paper); border: 1.5px solid var(--line); border-radius: 12px; padding: 14px 18px; }
+.box .h { font-size: 17px; margin-bottom: 8px; }
+.box .t { font-size: 14.5px; line-height: 1.65; color: var(--ink-sub); }
+.roles { display: flex; flex-direction: column; gap: 7px; }
+.roles div { display: grid; grid-template-columns: 178px 1fr; gap: 10px; align-items: center; font-size: 13px; }
+.roles code { font-family: Consolas, monospace; font-size: 12px; background: #eef2fb; border-radius: 6px; padding: 3px 8px; color: var(--navy-dark); white-space: nowrap; justify-self: start; }
+.bot { margin-top: 14px; display: flex; gap: 16px; align-items: center; font-size: 14.5px; }
+.bot b { color: var(--gold); white-space: nowrap; font-size: 15.5px; }
+</style></head><body>
+<div class="title">マージされたコードだけが、差分確認と承認を経て本番に届く</div>
+<div class="rule"></div>
+<div class="lead">4章の「変更セットで確かめてから反映する」手順を、CodePipeline の5つのステージにしたものです</div>
+<div class="area">
+  <div class="flow">
+    <div class="stg"><div class="n">1 SOURCE</div><div class="h">変更を取得</div><div class="svc">CodeCommit</div><ul><li><code>main</code> への push で起動</li><li>レビュー済みのコードだけ</li></ul></div>
+    <div class="ar">→</div>
+    <div class="stg"><div class="n">2 BUILD</div><div class="h">テストとsynth</div><div class="svc">CodeBuild</div><ul><li><code>go test</code>・Lambdaビルド</li><li><code>tsc</code>・<code>npm test</code>・<code>cdk synth</code></li></ul><div class="stop">1つでも失敗したら停止</div></div>
+    <div class="ar">→</div>
+    <div class="stg cfn"><div class="n">3 PREPARE</div><div class="h">変更セット作成</div><div class="svc">CodeBuild</div><ul><li><code>--method=</code><br><code>prepare-change-set</code></li><li>まだ何も変わらない</li></ul></div>
+    <div class="ar">→</div>
+    <div class="stg human"><div class="n">4 APPROVE</div><div class="h">人が承認</div><div class="svc">Manual Approval</div><ul><li>Replacement の有無を確認</li><li>鍵・台帳の置き換えは差し戻す</li></ul></div>
+    <div class="ar">→</div>
+    <div class="stg cfn"><div class="n">5 DEPLOY</div><div class="h">変更セット実行</div><div class="svc">CloudFormation</div><ul><li>① KmsStack</li><li>② CertIssuerStack</li></ul><div class="stop" style="color:var(--ink-sub)">依存の順に1つずつ</div></div>
+  </div>
+  <div class="row2">
+    <div class="box" style="flex:1.35"><div class="h">権限はブートストラップのロールに寄せる</div>
+      <div class="roles">
+        <div><code>deploy-role</code>変更セットの作成（CodeBuild が引き受ける）</div>
+        <div><code>file-publishing-role</code>Lambda のコードなどの資材をアップロード</div>
+        <div><code>cfn-exec-role</code>CloudFormation が実際にリソースを変更</div>
+      </div>
+      <div class="t" style="margin-top:8px">CodeBuild 自身には <code style="font-family:Consolas,monospace">sts:AssumeRole</code> だけを与えます</div>
+    </div>
+    <div class="box"><div class="h">パイプライン自身は手で更新する</div>
+      <div class="t">このサンプルは自己更新（self-mutation）をしません。<br><code style="font-family:Consolas,monospace">PipelineStack</code> は初回も変更時も、管理者が <code style="font-family:Consolas,monospace">cdk deploy</code> で反映します。パイプラインが自分の権限を広げる変更を、承認なしで通さないためです。</div>
+    </div>
+    <div class="box"><div class="h">成果物も暗号化する</div>
+      <div class="t">アーティファクト用の S3 バケットは、7章の <code style="font-family:Consolas,monospace">DataKey</code> で暗号化し、公開アクセスをブロック、SSL 必須にします。<br>テンプレートやビルド結果も、設定情報を含む大事なデータです。</div>
+    </div>
+  </div>
+</div>
+<div class="band bot"><b>GitHubを使うなら</b>Source ステージを AWS CodeConnections に差し替えるだけで、Build 以降はそのまま使えます</div>
+</body></html>

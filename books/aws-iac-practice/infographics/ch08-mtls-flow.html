@@ -1,0 +1,51 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.area { flex-direction: column; gap: 14px; }
+.lane { flex: 1; display: flex; gap: 12px; align-items: stretch; }
+.lane .lb { width: 120px; flex: none; border-radius: 10px; color: #fff; font-weight: 800; font-size: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; line-height: 1.35; }
+.lane .lb span { font-size: 11.5px; font-weight: 400; opacity: .9; }
+.steps { flex: 1; display: flex; gap: 8px; align-items: stretch; }
+.sp { flex: 1; background: var(--paper); border: 1.5px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 5px; }
+.sp .n { font-size: 12px; font-weight: 800; color: var(--blue-vivid); }
+.sp .h { font-size: 16px; }
+.sp .t { font-size: 13px; line-height: 1.55; color: var(--ink-sub); }
+.sp code { font-family: Consolas, monospace; font-size: 12px; color: var(--navy-dark); }
+.sp.kms { border-color: var(--gold); background: #fffbea; }
+.sp.chk { border-color: var(--blue-vivid); }
+.sp.ok { border-color: var(--green); background: #f3faf6; }
+.ar { width: 18px; flex: none; display: flex; align-items: center; justify-content: center; color: var(--blue-vivid); font-weight: 800; font-size: 18px; }
+.deny { margin-top: auto; font-size: 12px; font-weight: 700; color: var(--red); }
+.bot { margin-top: 14px; display: flex; gap: 16px; align-items: center; font-size: 14.5px; }
+.bot b { color: var(--gold); white-space: nowrap; font-size: 15.5px; }
+</style></head><body>
+<div class="title">証明書はKMSで署名し、APIは2段階でクライアントを確かめる</div>
+<div class="rule"></div>
+<div class="lead">秘密鍵はKMSとクライアントの手元から出さない。失効はAPI Gatewayが見ないので、オーソライザーが台帳で補います</div>
+<div class="area">
+  <div class="lane">
+    <div class="lb" style="background:var(--navy-dark)">発行<span>証明書を受け取る</span></div>
+    <div class="steps">
+      <div class="sp"><div class="n">1 クライアント</div><div class="h">鍵ペアとCSRを作る</div><div class="t">秘密鍵は手元に残し、公開鍵とCNだけをCSRで送る</div></div>
+      <div class="ar">→</div>
+      <div class="sp chk"><div class="n">2 発行Lambda（IAMで保護）</div><div class="h">CSRを検証する</div><div class="t">署名・鍵の強さ・CNを確認。SANや拡張の要求は使わない</div></div>
+      <div class="ar">→</div>
+      <div class="sp kms"><div class="n">3 KMS CaSigningKey</div><div class="h">ダイジェストに署名</div><div class="t"><code>Sign</code>（DIGEST / ECDSA_SHA_256）。秘密鍵はKMSの外に出ない</div></div>
+      <div class="ar">→</div>
+      <div class="sp"><div class="n">4 DynamoDB 台帳</div><div class="h">発行を記録して返す</div><div class="t">シリアル・CN・期限・<code>status=ISSUED</code> を登録</div></div>
+    </div>
+  </div>
+  <div class="lane">
+    <div class="lb" style="background:var(--blue-vivid)">利用<span>APIを呼び出す</span></div>
+    <div class="steps">
+      <div class="sp"><div class="n">1 クライアント</div><div class="h">証明書で接続</div><div class="t"><code>https://api.example.com</code> にTLS 1.2以上で接続</div></div>
+      <div class="ar">→</div>
+      <div class="sp chk"><div class="n">2 API Gateway</div><div class="h">トラストストアで検証</div><div class="t">CAのチェーン・署名・有効期間を確認</div><div class="deny">不合格ならTLS接続が失敗</div></div>
+      <div class="ar">→</div>
+      <div class="sp chk"><div class="n">3 Lambdaオーソライザー</div><div class="h">台帳で失効を確認</div><div class="t">シリアルで台帳を引き、ISSUEDかつ期限内か</div><div class="deny">REVOKED・期限切れ・未登録はDeny</div></div>
+      <div class="ar">→</div>
+      <div class="sp ok"><div class="n">4 バックエンド</div><div class="h">Allowなら処理</div><div class="t">結果はキャッシュせず、失効をすぐ反映</div></div>
+    </div>
+  </div>
+</div>
+<div class="band bot"><b>迂回を防ぐ</b>既定の execute-api エンドポイントは <code style="font-family:Consolas,monospace">disableExecuteApiEndpoint: true</code> で無効化し、mTLSのカスタムドメインだけを入口にする</div>
+</body></html>

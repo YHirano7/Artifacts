@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>実践2：mTLS用クライアント証明書を発行するLambda | AWSで学ぶ Infrastructure as Code 実践入門</title>
+<meta name="description" content="KMS を CA の鍵として使い、証明書を発行する Lambda と mTLS の API をまとめて構築します。">
+<link rel="stylesheet" href="../assets/book.css">
+<script>document.documentElement.className += " js";</script>
+<script src="../assets/book.js" defer></script>
+</head>
+<body class="page-chapter" data-chapter="8">
+<a class="skip-link" href="#main">本文へスキップ</a>
+<input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="チャプター一覧を開閉">
+<header class="topbar">
+  <label for="nav-toggle" class="menu-btn" title="チャプター一覧"><span class="menu-icon" aria-hidden="true"></span><span class="menu-text">チャプター</span></label>
+  <a class="topbar-title" href="../index.html">AWSで学ぶ Infrastructure as Code 実践入門</a>
+  <span class="topbar-chapter" id="topbar-chapter">Chapter 08</span>
+</header>
+<div class="book-layout">
+  <aside class="book-sidebar" id="sidebar" aria-label="チャプター一覧">
+    <a class="side-book" href="../index.html">
+      <span class="mini-cover" aria-hidden="true"><span class="mini-cover-title">AWS<br>IaC</span></span>
+      <span class="side-book-title">AWSで学ぶ Infrastructure as Code 実践入門</span>
+    </a>
+    <nav>
+      <ol class="chapter-list">
+<li><a href="01-introduction.html"><span class="ch-no">1</span><span class="ch-title">はじめに：この本で身につくこと</span></a></li>
+<li><a href="02-what-is-iac.html"><span class="ch-no">2</span><span class="ch-title">IaCとは何か：手作業の何が問題なのか</span></a></li>
+<li><a href="03-aws-iac-tools.html"><span class="ch-no">3</span><span class="ch-title">AWSのIaCツールを見渡す</span></a></li>
+<li><a href="04-cloudformation-basics.html"><span class="ch-no">4</span><span class="ch-title">CloudFormationの基本を押さえる</span></a></li>
+<li><a href="05-cdk-basics.html"><span class="ch-no">5</span><span class="ch-title">AWS CDKでインフラをプログラミングする</span></a></li>
+<li><a href="06-iam-as-code.html"><span class="ch-no">6</span><span class="ch-title">IAMをコードで設計する</span></a></li>
+<li><a href="07-kms-key-management.html"><span class="ch-no">7</span><span class="ch-title">実践1：KMSの鍵をIaCで管理する</span></a></li>
+<li><a href="08-mtls-cert-issuer.html" aria-current="page"><span class="ch-no">8</span><span class="ch-title">実践2：mTLS用クライアント証明書を発行するLambda</span></a></li>
+<li><a href="09-code-pipeline.html"><span class="ch-no">9</span><span class="ch-title">実践3：CodeシリーズでIaCのデプロイを自動化する</span></a></li>
+<li><a href="10-operations-design.html"><span class="ch-no">10</span><span class="ch-title">運用で困らないIaCの設計</span></a></li>
+<li><a href="11-next-steps.html"><span class="ch-no">11</span><span class="ch-title">おわりに：次に学ぶこと</span></a></li>
+      </ol>
+    </nav>
+  </aside>
+  <label for="nav-toggle" class="scrim" aria-hidden="true"></label>
+  <main id="main" class="book-main" tabindex="-1">
+    <article class="chapter-card">
+      <header class="chapter-head">
+        <p class="chapter-label">Chapter 08</p>
+        <h1 class="chapter-title">実践2：mTLS用クライアント証明書を発行するLambda</h1>
+        <p class="chapter-meta">読了目安 約16分</p>
+        <details class="toc-inline">
+          <summary>このチャプターの目次</summary>
+<ol class="toc"><li><a href="#s8-1">この章で分かること</a></li><li><a href="#s8-2">mTLS とは</a></li><li><a href="#s8-3">この章で作るもの</a><ol><li><a href="#s8-4">証明書を発行するまでの流れ</a></li><li><a href="#s8-5">API を呼び出すときの流れ</a></li></ol></li><li><a href="#s8-6">KMS の鍵で証明書に署名する</a></li><li><a href="#s8-7">CSR を検証して証明書を組み立てる</a></li><li><a href="#s8-8">CDK でスタックを組み立てる</a></li><li><a href="#s8-9">API Gateway で mTLS を有効にする</a></li><li><a href="#s8-10">失効確認を Lambda オーソライザーで補う</a></li><li><a href="#s8-11">テストで確かめる</a></li><li><a href="#s8-12">まとめ</a></li><li><a href="#s8-13">確認問題</a></li></ol>
+        </details>
+      </header>
+      <div class="chapter-body znc">
+<h2 id="s8-1">この章で分かること</h2>
+<ul>
+<li>mTLS（相互 TLS）とクライアント証明書の仕組み</li>
+<li>KMS の非対称キーを CA の鍵にして、証明書を発行する Lambda の作り方</li>
+<li>API Gateway で mTLS を有効にするときの設定と、失効確認を補う方法</li>
+</ul>
+<h2 id="s8-2">mTLS とは</h2>
+<p>ふだんの HTTPS（TLS）では、クライアントがサーバーの証明書を確かめます。「接続先が本物の <code>api.example.com</code> か」を確認する一方向の認証です。</p>
+<p><strong>mTLS</strong>（mutual TLS、相互 TLS）では、これに加えてサーバーもクライアントの証明書を確かめます。クライアントは、サーバーが信頼する認証局（CA）から発行された <strong>クライアント証明書</strong> と、その秘密鍵を持っていないと接続できません。</p>
+<p>mTLS は、次のような場面でよく使われます。</p>
+<ul>
+<li>取引先のシステムどうしを API でつなぐ（B2B 連携）</li>
+<li>工場の機器や IoT デバイスから、クラウドへデータを送る</li>
+<li>社内システムの間で、パスワードや API キーの代わりに証明書で認証する</li>
+</ul>
+<p>API キーは文字列なので、漏れればそのまま使われてしまいます。クライアント証明書を使う方式なら、秘密鍵はクライアントの手元から出ません。通信路でやり取りされるのは公開鍵を含む証明書と署名だけなので、盗み見られても認証を突破されにくくなります。</p>
+<h2 id="s8-3">この章で作るもの</h2>
+<p>この章のサンプルは、次の三つの部品でできています。</p><figure class="fig"><img src="../images/ch08-mtls-flow.png" alt="mTLSの全体像：証明書発行LambdaがKMSで署名し、API GatewayがトラストストアとLambdaオーソライザーでクライアントを確かめる" loading="lazy" width="1280" height="720"><figcaption>mTLSの全体像：証明書発行LambdaがKMSで署名し、API GatewayがトラストストアとLambdaオーソライザーでクライアントを確かめる</figcaption></figure><ol>
+<li><strong>CA</strong>：7章の非対称キー <code>CaSigningKey</code> を CA の鍵として使います。秘密鍵は KMS の外に出ません。</li>
+<li><strong>証明書発行 Lambda</strong>：クライアントから受け取った CSR（証明書署名要求）を検証し、KMS で署名してクライアント証明書を返します。発行した証明書は DynamoDB の台帳に記録します。</li>
+<li><strong>mTLS 対応 API</strong>：API Gateway のカスタムドメイン名で mTLS を有効にします。証明書の失効は API Gateway が確認しないので、Lambda オーソライザーで台帳を照合して補います。</li>
+</ol>
+<h3 id="s8-4">証明書を発行するまでの流れ</h3>
+<ol>
+<li>管理者が最初に一度だけ、<code>init-ca</code> コマンドで CA 証明書を作り、S3 に置きます。</li>
+<li>クライアントは手元で鍵ペアを作り、公開鍵を含む CSR を作ります。秘密鍵は手元に残します。</li>
+<li>発行 Lambda を呼び出して CSR を渡します。Lambda は IAM で保護し、許可されたロールだけが呼び出せます。</li>
+<li>Lambda は CSR を検証し、証明書の中身を組み立てて、KMS の <code>Sign</code> API で署名します。</li>
+<li>証明書のシリアル番号と有効期限を台帳に記録し、証明書をクライアントに返します。</li>
+</ol>
+<h3 id="s8-5">API を呼び出すときの流れ</h3>
+<ol>
+<li>クライアントは、証明書と秘密鍵を使って <code>https://api.example.com</code> に接続します。</li>
+<li>API Gateway は、証明書がトラストストアの CA から発行されたものか、有効期間内かを確かめます。ここで不合格なら、TLS の接続自体が失敗します。</li>
+<li>合格すると、Lambda オーソライザーが呼ばれます。オーソライザーは証明書のシリアル番号で台帳を引き、失効していないかを確かめます。</li>
+<li>台帳で <code>ISSUED</code>（発行済み）かつ期限内なら <code>Allow</code>、それ以外は <code>Deny</code> を返します。</li>
+</ol><aside class="msg msg-info"><div class="msg-body"><p>CA を作る方法としては、マネージドサービスの AWS Private CA もあります。証明書の失効リスト（CRL）や OCSP にも対応していて、本番で多数の証明書を扱うなら第一候補です。一方で、CA ごとに月額の料金がかかります。この本では、KMS と Lambda の組み合わせで仕組みを理解することを優先して、自前の小さな CA を作ります。料金は変わることがあるので、採用を検討するときは公式の料金ページで確認してください（2026年9月時点）。</p></div></aside><h2 id="s8-6">KMS の鍵で証明書に署名する</h2>
+<p>Go の標準ライブラリで証明書を作るには、<code>x509.CreateCertificate</code> を使います。この関数は、秘密鍵そのものではなく <code>crypto.Signer</code> というインターフェースを受け取ります。</p><div class="code-block"><div class="code-file">crypto.Signer インターフェース（Go 標準ライブラリ）</div><pre class="hl"><code class="language-go"><span class="kd">type</span><span class="w"> </span><span class="nx">Signer</span><span class="w"> </span><span class="kd">interface</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">Public</span><span class="p">()</span><span class="w"> </span><span class="nx">crypto</span><span class="p">.</span><span class="nx">PublicKey</span>
+<span class="w">    </span><span class="nx">Sign</span><span class="p">(</span><span class="nx">rand</span><span class="w"> </span><span class="nx">io</span><span class="p">.</span><span class="nx">Reader</span><span class="p">,</span><span class="w"> </span><span class="nx">digest</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="nx">opts</span><span class="w"> </span><span class="nx">crypto</span><span class="p">.</span><span class="nx">SignerOpts</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span>
+<span class="p">}</span>
+</code></pre></div><p>つまり、「公開鍵を返す」「ダイジェストに署名する」の二つを KMS の API で実装すれば、秘密鍵を持たずに証明書を作れます。サンプルの <code>kmssigner</code> パッケージがこの実装です。</p><div class="code-block"><div class="code-file">samples/lambda/internal/kmssigner/kmssigner.go（抜粋）</div><pre class="hl"><code class="language-go"><span class="c1">// New は keyID の公開鍵を KMS から取得して Signer を作る。</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">New</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="nx">context</span><span class="p">.</span><span class="nx">Context</span><span class="p">,</span><span class="w"> </span><span class="nx">client</span><span class="w"> </span><span class="nx">API</span><span class="p">,</span><span class="w"> </span><span class="nx">keyID</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">Signer</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">	</span><span class="nx">out</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">client</span><span class="p">.</span><span class="nx">GetPublicKey</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">kms</span><span class="p">.</span><span class="nx">GetPublicKeyInput</span><span class="p">{</span><span class="nx">KeyId</span><span class="p">:</span><span class="w"> </span><span class="nx">aws</span><span class="p">.</span><span class="nx">String</span><span class="p">(</span><span class="nx">keyID</span><span class="p">)})</span>
+<span class="w">	</span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">		</span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;GetPublicKey: %w&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span>
+<span class="w">	</span><span class="p">}</span>
+<span class="w">	</span><span class="nx">pub</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">x509</span><span class="p">.</span><span class="nx">ParsePKIXPublicKey</span><span class="p">(</span><span class="nx">out</span><span class="p">.</span><span class="nx">PublicKey</span><span class="p">)</span>
+<span class="w">	</span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">		</span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;ParsePKIXPublicKey: %w&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span>
+<span class="w">	</span><span class="p">}</span>
+<span class="w">	</span><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">Signer</span><span class="p">{</span><span class="nx">client</span><span class="p">:</span><span class="w"> </span><span class="nx">client</span><span class="p">,</span><span class="w"> </span><span class="nx">keyID</span><span class="p">:</span><span class="w"> </span><span class="nx">keyID</span><span class="p">,</span><span class="w"> </span><span class="nx">public</span><span class="p">:</span><span class="w"> </span><span class="nx">pub</span><span class="p">},</span><span class="w"> </span><span class="kc">nil</span>
+<span class="p">}</span>
+
+<span class="c1">// Sign は digest に KMS で ECDSA_SHA_256 署名する。返り値は DER 形式。</span>
+<span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="o">*</span><span class="nx">Signer</span><span class="p">)</span><span class="w"> </span><span class="nx">Sign</span><span class="p">(</span><span class="nx">rand</span><span class="w"> </span><span class="nx">io</span><span class="p">.</span><span class="nx">Reader</span><span class="p">,</span><span class="w"> </span><span class="nx">digest</span><span class="w"> </span><span class="p">[]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="nx">opts</span><span class="w"> </span><span class="nx">crypto</span><span class="p">.</span><span class="nx">SignerOpts</span><span class="p">)</span><span class="w"> </span><span class="p">([]</span><span class="kt">byte</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">	</span><span class="k">if</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">HashFunc</span><span class="p">()</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="nx">crypto</span><span class="p">.</span><span class="nx">SHA256</span><span class="w"> </span><span class="p">{</span>
+<span class="w">		</span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;unsupported hash: %v&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">opts</span><span class="p">.</span><span class="nx">HashFunc</span><span class="p">())</span>
+<span class="w">	</span><span class="p">}</span>
+<span class="w">	</span><span class="nx">out</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">client</span><span class="p">.</span><span class="nx">Sign</span><span class="p">(</span><span class="nx">context</span><span class="p">.</span><span class="nx">Background</span><span class="p">(),</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">kms</span><span class="p">.</span><span class="nx">SignInput</span><span class="p">{</span>
+<span class="w">		</span><span class="nx">KeyId</span><span class="p">:</span><span class="w">            </span><span class="nx">aws</span><span class="p">.</span><span class="nx">String</span><span class="p">(</span><span class="nx">s</span><span class="p">.</span><span class="nx">keyID</span><span class="p">),</span>
+<span class="w">		</span><span class="nx">Message</span><span class="p">:</span><span class="w">          </span><span class="nx">digest</span><span class="p">,</span>
+<span class="w">		</span><span class="nx">MessageType</span><span class="p">:</span><span class="w">      </span><span class="nx">types</span><span class="p">.</span><span class="nx">MessageTypeDigest</span><span class="p">,</span>
+<span class="w">		</span><span class="nx">SigningAlgorithm</span><span class="p">:</span><span class="w"> </span><span class="nx">types</span><span class="p">.</span><span class="nx">SigningAlgorithmSpecEcdsaSha256</span><span class="p">,</span>
+<span class="w">	</span><span class="p">})</span>
+<span class="w">	</span><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">		</span><span class="k">return</span><span class="w"> </span><span class="kc">nil</span><span class="p">,</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Errorf</span><span class="p">(</span><span class="s">&quot;kms.Sign: %w&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="p">)</span>
+<span class="w">	</span><span class="p">}</span>
+<span class="w">	</span><span class="k">return</span><span class="w"> </span><span class="nx">out</span><span class="p">.</span><span class="nx">Signature</span><span class="p">,</span><span class="w"> </span><span class="kc">nil</span>
+<span class="p">}</span>
+</code></pre></div><p>ポイントは三つあります。</p>
+<ul>
+<li><strong>公開鍵の形式</strong>：<code>GetPublicKey</code> は公開鍵を DER 形式（SubjectPublicKeyInfo）で返します。<code>x509.ParsePKIXPublicKey</code> でそのまま Go の公開鍵に変換できます。</li>
+<li><strong>ダイジェストを送る</strong>：KMS の <code>Sign</code> に渡せるメッセージは 4096 バイトまでです。証明書の本体はこれを超えることがあるので、ハッシュ値（ダイジェスト）を送り、<code>MessageType</code> に <code>DIGEST</code> を指定します。<code>x509.CreateCertificate</code> は、もともとダイジェストを渡してくれます。</li>
+<li><strong>署名の形式</strong>：KMS の ECDSA 署名は DER 形式で返ります。Go の <code>crypto/ecdsa</code> が期待する形式と同じなので、変換は要りません。</li>
+</ul>
+<p><code>ECC_NIST_P256</code> の鍵に対して SHA-256 以外のハッシュが来た場合は、エラーにして拒否します。想定外の組み合わせを黙って通さないためです。</p>
+<h2 id="s8-7">CSR を検証して証明書を組み立てる</h2>
+<p>発行 Lambda は、受け取った CSR をそのまま信用してはいけません。CSR はクライアントが自由に作れるので、「CA として使える証明書がほしい」「別のドメイン名も入れてほしい」といった要求を紛れ込ませることができます。サンプルでは、次の方針で検証します。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>確認すること</th>
+<th>方針</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CSR の署名</td>
+<td><code>CheckSignature</code> で、CSR が公開鍵に対応する秘密鍵で署名されているかを確かめる</td>
+</tr>
+<tr>
+<td>鍵の種類と長さ</td>
+<td>ECDSA の P-256・P-384、または RSA 2048 ビット以上だけを受け付ける</td>
+</tr>
+<tr>
+<td>CN（共通名）</td>
+<td><code>^[a-z0-9][a-z0-9-]{2,62}$</code> に合う名前だけを受け付ける</td>
+</tr>
+<tr>
+<td>SAN や拡張の要求</td>
+<td>CSR に書かれていても使わない。証明書の中身は発行側のテンプレートで決める</td>
+</tr>
+</tbody>
+</table></div>
+<p>証明書の中身（テンプレート）は、発行側で決めた値だけで組み立てます。</p><div class="code-block"><div class="code-file">samples/lambda/internal/certissue/certissue.go（抜粋）</div><pre class="hl"><code class="language-go"><span class="k">return</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">x509</span><span class="p">.</span><span class="nx">Certificate</span><span class="p">{</span>
+<span class="w">	</span><span class="nx">SerialNumber</span><span class="p">:</span><span class="w">          </span><span class="nx">serial</span><span class="p">,</span><span class="w"> </span><span class="c1">// 正の128ビット乱数</span>
+<span class="w">	</span><span class="nx">Subject</span><span class="p">:</span><span class="w">               </span><span class="nx">pkix</span><span class="p">.</span><span class="nx">Name</span><span class="p">{</span><span class="nx">CommonName</span><span class="p">:</span><span class="w"> </span><span class="nx">csr</span><span class="p">.</span><span class="nx">Subject</span><span class="p">.</span><span class="nx">CommonName</span><span class="p">},</span>
+<span class="w">	</span><span class="nx">NotBefore</span><span class="p">:</span><span class="w">             </span><span class="nx">now</span><span class="p">.</span><span class="nx">Add</span><span class="p">(</span><span class="o">-</span><span class="mi">5</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Minute</span><span class="p">),</span>
+<span class="w">	</span><span class="nx">NotAfter</span><span class="p">:</span><span class="w">              </span><span class="nx">now</span><span class="p">.</span><span class="nx">Add</span><span class="p">(</span><span class="nx">time</span><span class="p">.</span><span class="nx">Duration</span><span class="p">(</span><span class="nx">days</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="mi">24</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="nx">time</span><span class="p">.</span><span class="nx">Hour</span><span class="p">),</span>
+<span class="w">	</span><span class="nx">KeyUsage</span><span class="p">:</span><span class="w">              </span><span class="nx">x509</span><span class="p">.</span><span class="nx">KeyUsageDigitalSignature</span><span class="p">,</span>
+<span class="w">	</span><span class="nx">ExtKeyUsage</span><span class="p">:</span><span class="w">           </span><span class="p">[]</span><span class="nx">x509</span><span class="p">.</span><span class="nx">ExtKeyUsage</span><span class="p">{</span><span class="nx">x509</span><span class="p">.</span><span class="nx">ExtKeyUsageClientAuth</span><span class="p">},</span>
+<span class="w">	</span><span class="nx">BasicConstraintsValid</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">	</span><span class="nx">AuthorityKeyId</span><span class="p">:</span><span class="w">        </span><span class="nx">caCert</span><span class="p">.</span><span class="nx">SubjectKeyId</span><span class="p">,</span>
+<span class="p">},</span><span class="w"> </span><span class="kc">nil</span>
+</code></pre></div><ul>
+<li><strong>シリアル番号</strong>：推測されにくい正の128ビット乱数にします。台帳の主キーにもなります。</li>
+<li><strong>有効期間</strong>：<code>NotBefore</code> を5分前にするのは、クライアントとサーバーの時計のずれで「まだ有効になっていない」と判定されるのを防ぐためです。<code>NotAfter</code> は、既定30日・最大90日の範囲で呼び出し側が指定できます。</li>
+<li><strong>用途</strong>：<code>ExtKeyUsage</code> を <code>ClientAuth</code>（クライアント認証）だけにします。この証明書でサーバーを名乗ることはできません。</li>
+<li><strong>CA ではないことの明示</strong>：<code>BasicConstraintsValid: true</code> で <code>IsCA</code> を省略すると、「CA ではない」ことが証明書に書き込まれます。この証明書を使って、さらに別の証明書を発行することはできません。</li>
+</ul>
+<p>最後に <code>x509.CreateCertificate</code> に KMS の <code>Signer</code> を渡して署名します。発行 Lambda は、KMS の公開鍵が CA 証明書の公開鍵と一致することも確かめます。設定の誤りで別の鍵を指していた場合に、検証できない証明書を配ってしまうのを防ぐためです。</p>
+<h2 id="s8-8">CDK でスタックを組み立てる</h2>
+<p><code>CertIssuerStack</code> の主な部品は次のとおりです。</p><div class="code-block"><div class="code-file">samples/cdk/lib/cert-issuer-stack.ts（抜粋）</div><pre class="hl"><code class="language-ts"><span class="c1">// 発行した証明書の台帳。失効チェックはこのテーブルを見て判定する。</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">table</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">dynamodb</span><span class="p">.</span><span class="nx">Table</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;IssuedCertificates&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">partitionKey</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">name</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;serial&quot;</span><span class="p">,</span><span class="w"> </span><span class="kr">type</span><span class="o">:</span><span class="w"> </span><span class="nx">dynamodb</span><span class="p">.</span><span class="nx">AttributeType</span><span class="p">.</span><span class="nx">STRING</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nx">billingMode</span><span class="o">:</span><span class="w"> </span><span class="kt">dynamodb.BillingMode.PAY_PER_REQUEST</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">pointInTimeRecoverySpecification</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">pointInTimeRecoveryEnabled</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nx">encryption</span><span class="o">:</span><span class="w"> </span><span class="kt">dynamodb.TableEncryption.CUSTOMER_MANAGED</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">encryptionKey</span><span class="o">:</span><span class="w"> </span><span class="kt">dataKey</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">removalPolicy</span><span class="o">:</span><span class="w"> </span><span class="kt">cdk.RemovalPolicy.RETAIN</span><span class="p">,</span>
+<span class="p">});</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">issuer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">lambda</span><span class="p">.</span><span class="nb">Function</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;IssuerFunction&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">runtime</span><span class="o">:</span><span class="w"> </span><span class="kt">lambda.Runtime.PROVIDED_AL2023</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">architecture</span><span class="o">:</span><span class="w"> </span><span class="kt">lambda.Architecture.ARM_64</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">handler</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;bootstrap&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">code</span><span class="o">:</span><span class="w"> </span><span class="kt">lambda.Code.fromAsset</span><span class="p">(</span><span class="nx">path</span><span class="p">.</span><span class="nx">join</span><span class="p">(</span><span class="nx">__dirname</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;../../lambda/dist/issuer&quot;</span><span class="p">)),</span>
+<span class="w">  </span><span class="nx">environment</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">CA_KEY_ID</span><span class="o">:</span><span class="w"> </span><span class="kt">caSigningKey.keyId</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">TABLE_NAME</span><span class="o">:</span><span class="w"> </span><span class="kt">table.tableName</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">MAX_VALIDITY_DAYS</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;90&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="c1">// ほかの環境変数は省略</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="p">});</span>
+
+<span class="c1">// 最小権限：署名と公開鍵の取得、台帳への登録だけを許可する</span>
+<span class="nx">caSigningKey</span><span class="p">.</span><span class="nx">grant</span><span class="p">(</span><span class="nx">issuer</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;kms:Sign&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;kms:GetPublicKey&quot;</span><span class="p">);</span>
+<span class="nx">dataKey</span><span class="p">.</span><span class="nx">grantEncryptDecrypt</span><span class="p">(</span><span class="nx">issuer</span><span class="p">);</span>
+<span class="nx">table</span><span class="p">.</span><span class="nx">grant</span><span class="p">(</span><span class="nx">issuer</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;dynamodb:PutItem&quot;</span><span class="p">);</span>
+</code></pre></div><ul>
+<li><strong>Go の Lambda</strong>：<code>provided.al2023</code> ランタイムと ARM64（Graviton）を使います。Go はビルドした実行ファイルを <code>bootstrap</code> という名前で置くだけで動きます。ビルドは <code>samples/scripts/build-lambda.sh</code> で行います。</li>
+<li><strong>台帳の保護</strong>：証明書の台帳は、失うと失効確認ができなくなる大事なデータです。ポイントインタイムリカバリ（PITR）を有効にし、<code>RETAIN</code> で削除から守ります。</li>
+<li><strong>呼び出し方</strong>：発行 Lambda には関数 URL を作りません。呼び出せるのは、<code>lambda:InvokeFunction</code> を許可された IAM ロールだけです。証明書を発行できる人を、IAM で管理できます。</li>
+</ul>
+<h2 id="s8-9">API Gateway で mTLS を有効にする</h2>
+<p>API Gateway の REST API で mTLS を使うには、次の三つが必要です。</p>
+<ul>
+<li><strong>リージョン別のカスタムドメイン名</strong>（例：<code>api.example.com</code>）</li>
+<li>そのドメイン名の <strong>ACM 証明書</strong>（サーバー証明書）</li>
+<li>CA 証明書をまとめた <strong>トラストストア</strong>（<code>.pem</code> ファイル）を S3 に置いたもの</li>
+</ul><div class="code-block"><div class="code-file">samples/cdk/lib/cert-issuer-stack.ts（抜粋）</div><pre class="hl"><code class="language-ts"><span class="kd">const</span><span class="w"> </span><span class="nx">api</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">apigateway</span><span class="p">.</span><span class="nx">RestApi</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;MtlsApi&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="c1">// 既定の execute-api エンドポイントを残すと mTLS を迂回できるので無効化する</span>
+<span class="w">  </span><span class="nx">disableExecuteApiEndpoint</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">deployOptions</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">stageName</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;v1&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="p">});</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="nx">domain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">apigateway</span><span class="p">.</span><span class="nx">DomainName</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;MtlsDomainName&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">domainName</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">certificate</span><span class="o">:</span><span class="w"> </span><span class="kt">acm.Certificate.fromCertificateArn</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ApiCertificate&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">certificateArn</span><span class="p">),</span>
+<span class="w">  </span><span class="nx">endpointType</span><span class="o">:</span><span class="w"> </span><span class="kt">apigateway.EndpointType.REGIONAL</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">securityPolicy</span><span class="o">:</span><span class="w"> </span><span class="kt">apigateway.SecurityPolicy.TLS_1_2</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">mtls</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">bucket</span><span class="o">:</span><span class="w"> </span><span class="kt">truststoreBucket</span><span class="p">,</span><span class="w"> </span><span class="nx">key</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;truststore.pem&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="p">});</span>
+</code></pre></div><aside class="msg msg-alert"><div class="msg-body"><p>API Gateway は、API ごとに <code>https://{api-id}.execute-api.{region}.amazonaws.com</code> という既定のエンドポイントを作ります。カスタムドメイン名で mTLS を有効にしても、このエンドポイントは mTLS なしで呼び出せてしまいます。<code>disableExecuteApiEndpoint: true</code> で必ず無効にしてください。</p></div></aside><p>サンプルでは、ドメイン名と証明書 ARN の両方をコンテキストで渡したときだけ API を作ります。<code>cdk synth -c apiDomainName=api.example.com -c apiCertificateArn=...</code> のように指定します。ドメインを持っていなくても、発行 Lambda の部分だけを試せるようにするためです。</p>
+<p>トラストストアのバケットはバージョニングを有効にしています。トラストストアを更新するときは、新しいバージョンを置いてから、ドメイン名の設定でそのバージョンを指定します。CA を入れ替える期間は、新旧両方の CA 証明書を一つのファイルに並べて入れておきます。</p>
+<h2 id="s8-10">失効確認を Lambda オーソライザーで補う</h2>
+<p>API Gateway は、クライアント証明書の署名と有効期間は確かめますが、<strong>失効しているかどうかは確認しません</strong>。退職した担当者や紛失した機器の証明書を、期限を待たずに使えなくするには、別の仕組みが必要です。</p>
+<p>サンプルでは、REQUEST 型の Lambda オーソライザーで台帳を照合します。mTLS が有効なとき、オーソライザーに渡されるイベントの <code>requestContext.identity.clientCert</code> に、クライアント証明書の情報が入ります。</p><div class="code-block"><div class="code-file">samples/lambda/authorizer/main.go（考え方）</div><pre class="hl"><code class="language-go"><span class="nx">serial</span><span class="p">,</span><span class="w"> </span><span class="nx">ok</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">certissue</span><span class="p">.</span><span class="nx">CanonicalSerial</span><span class="p">(</span><span class="nx">req</span><span class="p">.</span><span class="nx">RequestContext</span><span class="p">.</span><span class="nx">Identity</span><span class="p">.</span><span class="nx">ClientCert</span><span class="p">.</span><span class="nx">SerialNumber</span><span class="p">)</span>
+<span class="k">if</span><span class="w"> </span><span class="p">!</span><span class="nx">ok</span><span class="w"> </span><span class="p">{</span>
+<span class="w">	</span><span class="k">return</span><span class="w"> </span><span class="nx">deny</span><span class="p">()</span>
+<span class="p">}</span>
+<span class="nx">item</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">getItem</span><span class="p">(</span><span class="nx">table</span><span class="p">,</span><span class="w"> </span><span class="nx">serial</span><span class="p">)</span><span class="w">          </span><span class="c1">// 台帳を主キーで1件取得</span>
+<span class="k">if</span><span class="w"> </span><span class="nx">item</span><span class="p">.</span><span class="nx">status</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;ISSUED&quot;</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">now</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="nx">item</span><span class="p">.</span><span class="nx">notAfter</span><span class="w"> </span><span class="p">{</span>
+<span class="w">	</span><span class="k">return</span><span class="w"> </span><span class="nx">allow</span><span class="p">()</span>
+<span class="p">}</span>
+<span class="k">return</span><span class="w"> </span><span class="nx">deny</span><span class="p">()</span>
+</code></pre></div><p>シリアル番号は、<code>0a:1b:...</code> のようなコロン区切りの16進数で渡されることがあります。台帳の主キーと表記がずれないように、いったん整数として読み込んでから同じ形式の文字列に直して比べます。</p>
+<p>証明書を失効させるときは、台帳のその証明書の <code>status</code> を <code>REVOKED</code> に更新します。オーソライザーは結果をキャッシュしない設定（<code>resultsCacheTtl: 0</code>）にしているので、次のリクエストからすぐに拒否されます。キャッシュを有効にすると Lambda の呼び出し回数は減りますが、失効が反映されるまでに最大でキャッシュの時間だけ遅れます。要件に合わせて決めましょう。</p>
+<h2 id="s8-11">テストで確かめる</h2>
+<p>実際の AWS に接続しなくても、ロジックの大部分はテストで確かめられます。</p>
+<ul>
+<li><strong>発行の一連の流れ</strong>：テストでは KMS の代わりに、Go の標準ライブラリで作った ECDSA 鍵を使うフェイクを差し込みます。CA 証明書を作り、CSR から証明書を発行し、<code>x509.Verify</code> でクライアント認証用として検証できるところまでを確かめます。</li>
+<li><strong>拒否すべき CSR</strong>：署名が壊れている、鍵が弱い、CN が規則に合わない、といった CSR が拒否されることを確かめます。</li>
+<li><strong>オーソライザー</strong>：発行済み・失効済み・期限切れ・台帳にない証明書で、<code>Allow</code> と <code>Deny</code> が正しく返ることを確かめます。</li>
+<li><strong>CDK</strong>：発行 Lambda の権限が <code>kms:Sign</code> と <code>kms:GetPublicKey</code> に絞られていること、<code>kms:*</code> がないことを確かめます。</li>
+</ul><div class="code-block"><div class="code-file">テストとビルド</div><pre class="hl"><code class="language-bash"><span class="nb">cd</span><span class="w"> </span>samples/lambda<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>go<span class="w"> </span>vet<span class="w"> </span>./...<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>go<span class="w"> </span><span class="nb">test</span><span class="w"> </span>./...
+<span class="nb">cd</span><span class="w"> </span>..<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>bash<span class="w"> </span>scripts/build-lambda.sh
+<span class="nb">cd</span><span class="w"> </span>cdk<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span><span class="nb">test</span>
+</code></pre></div><h2 id="s8-12">まとめ</h2>
+<ul>
+<li>mTLS では、サーバーもクライアントの証明書を確かめます。API キーと違い、秘密鍵はクライアントの手元から出ません。</li>
+<li>KMS の非対称キーを <code>crypto.Signer</code> として実装すると、秘密鍵を KMS の外に出さずに証明書へ署名できます。</li>
+<li>発行 Lambda は CSR を信用せず、証明書の中身を発行側のテンプレートで決めます。</li>
+<li>API Gateway の mTLS では、既定のエンドポイントを無効にします。失効確認は Lambda オーソライザーと台帳で補います。</li>
+</ul>
+<h2 id="s8-13">確認問題</h2>
+<p><strong>問1.</strong> 発行 Lambda が、CSR に書かれた SAN（別名）や拡張の要求を使わないのはなぜですか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>CSR はクライアントが自由に作れるので、CA として使える拡張や、関係のないドメイン名などを紛れ込ませることができるからです。証明書に何を書くかは発行側が決めるべきなので、CSR からは公開鍵と CN だけを取り出し、残りはテンプレートで決めます。</p></div></details><p><strong>問2.</strong> カスタムドメイン名で mTLS を有効にしたのに、<code>disableExecuteApiEndpoint</code> を設定し忘れると、何が起こりますか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>既定の <code>execute-api</code> エンドポイントが残るので、クライアント証明書を持たない人も、そのエンドポイントから API を呼び出せてしまいます。mTLS の認証を迂回されることになります。</p></div></details><p><strong>問3.</strong> 紛失したノート PC に入っていたクライアント証明書を、すぐに使えなくしたいとします。このサンプルではどうすればよいですか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>台帳（DynamoDB）で、その証明書のシリアル番号のレコードの <code>status</code> を <code>REVOKED</code> に更新します。API Gateway 自身は失効を確認しませんが、オーソライザーが毎回台帳を照合するので、次のリクエストから拒否されます。オーソライザーの結果をキャッシュしている場合は、キャッシュの時間が過ぎるまで反映が遅れる点に注意します。</p></div></details>
+      </div>
+    </article>
+    <nav class="pager" aria-label="チャプター移動">
+<a class="pager-link prev" href="07-kms-key-management.html" rel="prev"><span class="pager-dir">← 前のチャプター</span><span class="pager-title">実践1：KMSの鍵をIaCで管理する</span></a>
+<a class="pager-link next" href="09-code-pipeline.html" rel="next"><span class="pager-dir">次のチャプター →</span><span class="pager-title">実践3：CodeシリーズでIaCのデプロイを自動化する</span></a>
+    </nav>
+  </main>
+  <aside class="page-toc" id="page-toc" aria-label="このチャプターの目次">
+    <div class="toc-card">
+      <p class="toc-heading">目次</p>
+<ol class="toc"><li><a href="#s8-1">この章で分かること</a></li><li><a href="#s8-2">mTLS とは</a></li><li><a href="#s8-3">この章で作るもの</a><ol><li><a href="#s8-4">証明書を発行するまでの流れ</a></li><li><a href="#s8-5">API を呼び出すときの流れ</a></li></ol></li><li><a href="#s8-6">KMS の鍵で証明書に署名する</a></li><li><a href="#s8-7">CSR を検証して証明書を組み立てる</a></li><li><a href="#s8-8">CDK でスタックを組み立てる</a></li><li><a href="#s8-9">API Gateway で mTLS を有効にする</a></li><li><a href="#s8-10">失効確認を Lambda オーソライザーで補う</a></li><li><a href="#s8-11">テストで確かめる</a></li><li><a href="#s8-12">まとめ</a></li><li><a href="#s8-13">確認問題</a></li></ol>
+    </div>
+  </aside>
+</div>
+<footer class="site-footer">
+  <p>AWSで学ぶ Infrastructure as Code 実践入門 ／ 最終更新 2026-09-29</p>
+  <p class="footer-note">記載のサービス仕様・料金は執筆時点のものです。実装前に AWS 公式ドキュメントで最新情報を確認してください。</p>
+</footer>
+</body>
+</html>

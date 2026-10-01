@@ -1,0 +1,52 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.st { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.st .num { font-size: 13px; font-weight: 800; color: var(--blue-vivid); letter-spacing: .08em; }
+.st .code { background: #0f1b3d; color: #dbe2fa; border-radius: 8px; padding: 10px 12px; font-family: Consolas, "Courier New", monospace; font-size: 12.5px; line-height: 1.6; }
+.st .code em { color: var(--gold); font-style: normal; }
+.st .note { margin-top: auto; background: var(--band); border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.55; }
+.st .note b { color: var(--navy-dark); }
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th, .tbl td { border-bottom: 1px solid var(--line); padding: 5px 4px; text-align: left; }
+.tbl th { color: var(--ink-sub); }
+.tbl .t { color: var(--red); font-weight: 800; } .tbl .f { color: var(--green); font-weight: 800; }
+.pts { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; line-height: 1.5; }
+.pts div { display: flex; gap: 8px; }
+.pts b { color: var(--navy-dark); min-width: 92px; font-family: Consolas, monospace; font-size: 13px; }
+.hi { border: 2px solid var(--blue-vivid); }
+.types { margin-top: 16px; display: flex; gap: 16px; align-items: center; }
+.types .lbl { color: var(--gold); font-weight: 800; font-size: 15px; white-space: nowrap; }
+.types .it { flex: 1; font-size: 13.5px; line-height: 1.5; border-left: 3px solid rgba(255,255,255,.35); padding-left: 12px; }
+.types .it b { display: block; font-size: 15px; }
+.types .it span { color: #c9d3f5; font-size: 12.5px; }
+.types .it.r { border-left-color: #ff8a96; }
+</style></head><body>
+<div class="title">変更セットで「何が作り直されるか」を先に確かめる</div>
+<div class="rule"></div>
+<div class="lead">テンプレートを直接反映せず、差分を作る・確認する・実行するの3段階に分けます</div>
+<div class="area">
+  <div class="card st"><div class="num">1 ／ テンプレート</div><div class="h">あるべき姿を書く</div>
+    <div class="code">Resources:<br>&nbsp;&nbsp;SampleBucket:<br>&nbsp;&nbsp;&nbsp;&nbsp;Type: AWS::S3::Bucket<br>&nbsp;&nbsp;&nbsp;&nbsp;Properties:<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;BucketName: <em>!Ref</em> ...</div>
+    <div class="pts"><div><b>Parameters</b>外から渡す値</div><div><b>Conditions</b>条件の真偽値</div><div><b>Resources</b>作るリソース（必須）</div><div><b>Outputs</b>後から参照する値</div></div>
+    <div class="note"><b>論理 ID</b>（SampleBucket）でリソースを追跡する。変えると別リソース扱い</div></div>
+  <svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg>
+  <div class="card st hi"><div class="num">2 ／ 変更セット</div><div class="h">差分を作って確認する</div>
+    <table class="tbl"><tr><th>Action</th><th>論理 ID</th><th>Replacement</th></tr>
+      <tr><td>Modify</td><td>SampleBucket</td><td class="t">True</td></tr>
+      <tr><td>Modify</td><td>LogsBucket</td><td class="f">False</td></tr>
+      <tr><td>Add</td><td>AppRole</td><td>-</td></tr></table>
+    <div class="pts"><div><b>True</b>置換される</div><div><b>Conditional</b>ほかの変更しだいで置換</div><div><b>False</b>置換されない</div></div>
+    <div class="note"><b>True は作り直し。</b>データを持つリソースなら、ここで必ず止まって確認する</div></div>
+  <svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg>
+  <div class="card st"><div class="num">3 ／ スタック</div><div class="h">実行して反映する</div>
+    <div class="code">aws cloudformation<br>&nbsp;&nbsp;execute-change-set \<br>&nbsp;&nbsp;--stack-name iac-book-bucket \<br>&nbsp;&nbsp;--change-set-name update-001</div>
+    <div class="pts"><div><b>CREATE_...</b>作成中・完了</div><div><b>UPDATE_...</b>更新中・完了</div><div><b>..._FAILED</b>失敗。最初の1件が原因</div><div><b>ROLLBACK_</b>変更前に戻す</div></div>
+    <div class="note"><b>失敗したら自動でロールバック。</b>原因は最初の FAILED イベントを見る</div></div>
+</div>
+<div class="band types">
+  <div class="lbl">更新の3種類</div>
+  <div class="it"><b>中断なし</b><span>動いたまま設定が変わる（タグの変更など）</span></div>
+  <div class="it"><b>一時的な中断あり</b><span>再起動などで短時間止まる</span></div>
+  <div class="it r"><b>置換</b><span>新しく作り、古いほうを削除する（名前の変更など）</span></div>
+</div>
+</body></html>

@@ -1,0 +1,61 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.col { flex: 1; display: flex; flex-direction: column; gap: 12px; }
+.col .hd { display: flex; align-items: center; gap: 12px; }
+.flow { display: flex; align-items: center; gap: 8px; }
+.step { flex: 1; text-align: center; background: var(--band); border-radius: 10px; padding: 12px 6px; font-size: 14px; font-weight: 700; line-height: 1.45; }
+.step small { display: block; font-weight: 400; font-size: 12px; color: var(--ink-sub); }
+.bad .step { border: 1.5px dashed var(--red); }
+.good .step { border: 1.5px solid var(--blue-sky); background: #eef6fd; }
+.flow .ar { color: var(--ink-sub); font-weight: 800; }
+.res { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.res div { display: flex; gap: 10px; align-items: baseline; font-size: 16px; line-height: 1.5; }
+.res i { font-style: normal; font-weight: 800; width: 20px; flex: none; }
+.bad .res i { color: var(--red); } .good .res i { color: var(--green); }
+.ex { margin-top: auto; border-radius: 10px; padding: 12px 14px; font-size: 13.5px; line-height: 1.6; }
+.ex b { display: block; font-size: 13px; margin-bottom: 4px; }
+.bad .ex { background: #fdf0f1; } .bad .ex b { color: var(--red); }
+.good .ex { background: #edf7f1; } .good .ex b { color: var(--green); }
+.ex code { font-family: Consolas, monospace; font-size: 12.5px; background: #fff; padding: 1px 5px; border-radius: 4px; }
+.vs { align-self: center; font-size: 22px; font-weight: 800; color: var(--navy-dark); }
+.key { margin-top: 16px; display: flex; gap: 18px; align-items: center; }
+.key .lbl { color: var(--gold); font-weight: 800; font-size: 16px; white-space: nowrap; }
+.key .it { flex: 1; font-size: 14px; line-height: 1.5; }
+.key .it b { display: block; font-size: 15.5px; }
+.key .it span { color: #c9d3f5; font-size: 12.5px; }
+</style></head><body>
+<div class="title">手作業とIaCの違いは「変更が何を通るか」</div>
+<div class="rule"></div>
+<div class="lead">手作業では変更が人の記憶と画面操作を通り、IaCではコードとレビューを通ります</div>
+<div class="area">
+  <div class="card col bad">
+    <div class="hd"><span class="chip red">手作業</span><div class="h">コンソールで直接変更する</div></div>
+    <div class="flow"><div class="step">手順書・記憶<small>最新とは限らない</small></div><span class="ar">→</span><div class="step">画面で操作<small>見落としが起きる</small></div><span class="ar">→</span><div class="step">AWS に反映<small>記録は残りにくい</small></div></div>
+    <div class="res">
+      <div><i>×</i>検証と本番の設定が少しずつずれる</div>
+      <div><i>×</i>反映する前に、誰も中身を確認できない</div>
+      <div><i>×</i>誰が・いつ・なぜ変えたかが追えない</div>
+      <div><i>×</i>障害時に同じ環境をすぐ作り直せない</div>
+    </div>
+    <div class="ex"><b>起きがちな事故</b>検証環境を見ながら本番のバケットを作ったが、バージョニングの設定を見落とした。上書きされたファイルを元に戻せない</div>
+  </div>
+  <div class="vs">VS</div>
+  <div class="card col good">
+    <div class="hd"><span class="chip">IaC</span><div class="h">コードを変更して反映する</div></div>
+    <div class="flow"><div class="step">コードを変更<small>あるべき姿を書く</small></div><span class="ar">→</span><div class="step">レビュー・差分確認<small>反映前に止められる</small></div><span class="ar">→</span><div class="step">ツールが反映<small>履歴はGitに残る</small></div></div>
+    <div class="res">
+      <div><i>○</i>同じコードから同じ環境を何度でも作れる</div>
+      <div><i>○</i>プルリクエストで第三者が事前に確認できる</div>
+      <div><i>○</i>変更の理由がコミットとレビューに残る</div>
+      <div><i>○</i>別リージョン・別アカウントにも再現できる</div>
+    </div>
+    <div class="ex"><b>同じ場面をIaCで</b>本番も検証と同じテンプレートから作るので、<code>VersioningConfiguration</code> の設定は漏れない。外す変更はレビューで気づける</div>
+  </div>
+</div>
+<div class="band key">
+  <div class="lbl">IaCの3つの柱</div>
+  <div class="it"><b>宣言的</b><span>手順ではなく「あるべき姿」を書く</span></div>
+  <div class="it"><b>冪等</b><span>何度適用しても結果が同じになる</span></div>
+  <div class="it"><b>差分の確認</b><span>反映する前に何が変わるかを見る</span></div>
+</div>
+</body></html>

@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>実践3：CodeシリーズでIaCのデプロイを自動化する | AWSで学ぶ Infrastructure as Code 実践入門</title>
+<meta name="description" content="CodeCommit・CodeBuild・CodePipeline で、テスト・変更セット・承認を経てデプロイする流れを作ります。">
+<link rel="stylesheet" href="../assets/book.css">
+<script>document.documentElement.className += " js";</script>
+<script src="../assets/book.js" defer></script>
+</head>
+<body class="page-chapter" data-chapter="9">
+<a class="skip-link" href="#main">本文へスキップ</a>
+<input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="チャプター一覧を開閉">
+<header class="topbar">
+  <label for="nav-toggle" class="menu-btn" title="チャプター一覧"><span class="menu-icon" aria-hidden="true"></span><span class="menu-text">チャプター</span></label>
+  <a class="topbar-title" href="../index.html">AWSで学ぶ Infrastructure as Code 実践入門</a>
+  <span class="topbar-chapter" id="topbar-chapter">Chapter 09</span>
+</header>
+<div class="book-layout">
+  <aside class="book-sidebar" id="sidebar" aria-label="チャプター一覧">
+    <a class="side-book" href="../index.html">
+      <span class="mini-cover" aria-hidden="true"><span class="mini-cover-title">AWS<br>IaC</span></span>
+      <span class="side-book-title">AWSで学ぶ Infrastructure as Code 実践入門</span>
+    </a>
+    <nav>
+      <ol class="chapter-list">
+<li><a href="01-introduction.html"><span class="ch-no">1</span><span class="ch-title">はじめに：この本で身につくこと</span></a></li>
+<li><a href="02-what-is-iac.html"><span class="ch-no">2</span><span class="ch-title">IaCとは何か：手作業の何が問題なのか</span></a></li>
+<li><a href="03-aws-iac-tools.html"><span class="ch-no">3</span><span class="ch-title">AWSのIaCツールを見渡す</span></a></li>
+<li><a href="04-cloudformation-basics.html"><span class="ch-no">4</span><span class="ch-title">CloudFormationの基本を押さえる</span></a></li>
+<li><a href="05-cdk-basics.html"><span class="ch-no">5</span><span class="ch-title">AWS CDKでインフラをプログラミングする</span></a></li>
+<li><a href="06-iam-as-code.html"><span class="ch-no">6</span><span class="ch-title">IAMをコードで設計する</span></a></li>
+<li><a href="07-kms-key-management.html"><span class="ch-no">7</span><span class="ch-title">実践1：KMSの鍵をIaCで管理する</span></a></li>
+<li><a href="08-mtls-cert-issuer.html"><span class="ch-no">8</span><span class="ch-title">実践2：mTLS用クライアント証明書を発行するLambda</span></a></li>
+<li><a href="09-code-pipeline.html" aria-current="page"><span class="ch-no">9</span><span class="ch-title">実践3：CodeシリーズでIaCのデプロイを自動化する</span></a></li>
+<li><a href="10-operations-design.html"><span class="ch-no">10</span><span class="ch-title">運用で困らないIaCの設計</span></a></li>
+<li><a href="11-next-steps.html"><span class="ch-no">11</span><span class="ch-title">おわりに：次に学ぶこと</span></a></li>
+      </ol>
+    </nav>
+  </aside>
+  <label for="nav-toggle" class="scrim" aria-hidden="true"></label>
+  <main id="main" class="book-main" tabindex="-1">
+    <article class="chapter-card">
+      <header class="chapter-head">
+        <p class="chapter-label">Chapter 09</p>
+        <h1 class="chapter-title">実践3：CodeシリーズでIaCのデプロイを自動化する</h1>
+        <p class="chapter-meta">読了目安 約13分</p>
+        <details class="toc-inline">
+          <summary>このチャプターの目次</summary>
+<ol class="toc"><li><a href="#s9-1">この章で分かること</a></li><li><a href="#s9-2">なぜパイプラインでデプロイするのか</a></li><li><a href="#s9-3">Code シリーズの役割分担</a></li><li><a href="#s9-4">この章で作るパイプライン</a><ol><li><a href="#s9-5">リポジトリの構成</a></li></ol></li><li><a href="#s9-6">CDK でパイプラインを書く</a><ol><li><a href="#s9-7">アーティファクト用のバケット</a></li><li><a href="#s9-8">テストと synth を実行する CodeBuild</a></li><li><a href="#s9-9">変更セットを作る</a></li><li><a href="#s9-10">承認と実行</a></li></ol></li><li><a href="#s9-11">権限をブートストラップ資材に寄せる</a></li><li><a href="#s9-12">パイプライン自身の更新</a></li><li><a href="#s9-13">GitHub をソースにする</a></li><li><a href="#s9-14">コストの目安</a></li><li><a href="#s9-15">まとめ</a></li><li><a href="#s9-16">確認問題</a></li></ol>
+        </details>
+      </header>
+      <div class="chapter-body znc">
+<h2 id="s9-1">この章で分かること</h2>
+<ul>
+<li>CodeCommit・CodeBuild・CodePipeline の役割分担</li>
+<li>テスト、変更セット、人の承認を経てデプロイするパイプラインの作り方</li>
+<li>パイプラインに渡す権限を、CDK のブートストラップ資材で絞る方法</li>
+</ul>
+<h2 id="s9-2">なぜパイプラインでデプロイするのか</h2>
+<p>ここまでの章では、<code>cdk deploy</code> を手元のパソコンから実行してきました。一人で試すうちはこれで十分ですが、チームで本番環境を扱うようになると、次のような問題が出てきます。</p>
+<ul>
+<li>誰の手元で、どのバージョンのコードからデプロイしたのかが分からない</li>
+<li>テストを飛ばしたデプロイや、レビュー前のデプロイを止められない</li>
+<li>開発者一人ひとりに、本番環境を変更できる強い権限を配る必要がある</li>
+</ul>
+<p><strong>CI/CD パイプライン</strong> を使うと、「リポジトリにマージされたコードだけが、決まった手順を通って本番に届く」状態を作れます。デプロイの権限はパイプラインだけが持てばよく、開発者は本番の変更権限を持たずに済みます。</p>
+<h2 id="s9-3">Code シリーズの役割分担</h2>
+<p>AWS には、CI/CD のためのサービスが「Code」で始まる名前でそろっています。この章で使うのは次の三つです。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>サービス</th>
+<th>役割</th>
+<th>この章での使い方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AWS CodeCommit</td>
+<td>Git リポジトリ</td>
+<td><code>samples/</code> の中身をそのまま置くリポジトリ</td>
+</tr>
+<tr>
+<td>AWS CodeBuild</td>
+<td>ビルドとテストの実行環境</td>
+<td>テスト、Lambda のビルド、<code>cdk synth</code>、変更セットの作成</td>
+</tr>
+<tr>
+<td>AWS CodePipeline</td>
+<td>全体の流れを管理する</td>
+<td>ソース取得から承認、デプロイまでの順番を決める</td>
+</tr>
+</tbody>
+</table></div><aside class="msg msg-info"><div class="msg-body"><p>CodeCommit は、2024年7月に新規利用の受け付けを停止しましたが、2025年11月に一般提供へ戻り、新規の利用者も再び使えるようになりました。サービスの提供状況は変わることがあるので、使いはじめる前に公式の情報を確認してください（本書の記述は2026年9月時点）。GitHub などを使う場合は、この章の最後で紹介する AWS CodeConnections でソースを差し替えられます。</p></div></aside><h2 id="s9-4">この章で作るパイプライン</h2><figure class="fig"><img src="../images/ch09-pipeline.png" alt="IaCのデプロイパイプライン：ソース、テストとsynth、変更セットの作成、人の承認、変更セットの実行の5段階" loading="lazy" width="1280" height="720"><figcaption>IaCのデプロイパイプライン：ソース、テストとsynth、変更セットの作成、人の承認、変更セットの実行の5段階</figcaption></figure><p>サンプルの <code>PipelineStack</code> は、次の五つのステージでできています。</p>
+<ol>
+<li><strong>Source</strong>：CodeCommit の <code>main</code> ブランチに変更が入ると、パイプラインが動きはじめます。</li>
+<li><strong>Build</strong>：CodeBuild で Go のテストと Lambda のビルド、CDK の型チェックとテスト、<code>cdk synth</code> を実行します。どれか一つでも失敗すれば、ここで止まります。</li>
+<li><strong>PrepareChangeSet</strong>：<code>Build</code> の成果物（<code>cdk.out</code>）を使って、<code>KmsStack</code> と <code>CertIssuerStack</code> の変更セットを作ります。この時点では、まだ何も変更されません。</li>
+<li><strong>Approve</strong>：人が変更セットの中身を確認して、承認します。</li>
+<li><strong>Deploy</strong>：承認された変更セットを、<code>KmsStack</code> → <code>CertIssuerStack</code> の順に実行します。</li>
+</ol>
+<p>4章で学んだ「変更セットで差分を確かめてから反映する」という手順を、そのままパイプラインにしたものです。人が確認するのは、コードの差分だけではありません。変更セットには「どのリソースが置き換え（Replacement）になるか」が表示されるので、鍵や台帳テーブルが作り直されるような危険な変更に気づけます。</p>
+<h3 id="s9-5">リポジトリの構成</h3>
+<p>リポジトリには、<code>samples/</code> ディレクトリの中身をそのまま置く前提です。</p><div class="code-block"><div class="code-file">リポジトリの構成</div><pre class="hl"><code class="language-text">.
+├── cdk/        # CDK アプリ（bin, lib, test）
+├── lambda/     # Go の Lambda
+├── scripts/    # build-lambda.sh
+└── cfn/        # 4章・7章の CloudFormation テンプレート
+</code></pre></div><h2 id="s9-6">CDK でパイプラインを書く</h2>
+<h3 id="s9-7">アーティファクト用のバケット</h3>
+<p>CodePipeline は、ステージの間で受け渡すファイル（アーティファクト）を S3 に置きます。テンプレートやビルド結果には設定の情報が含まれるので、アーティファクト用のバケットも保護します。</p><div class="code-block"><div class="code-file">samples/cdk/lib/pipeline-stack.ts（抜粋）</div><pre class="hl"><code class="language-ts"><span class="kd">const</span><span class="w"> </span><span class="nx">artifactBucket</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">s3</span><span class="p">.</span><span class="nx">Bucket</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;ArtifactBucket&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">blockPublicAccess</span><span class="o">:</span><span class="w"> </span><span class="kt">s3.BlockPublicAccess.BLOCK_ALL</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">enforceSSL</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">encryptionKey</span><span class="o">:</span><span class="w"> </span><span class="kt">props.artifactKey</span><span class="p">,</span><span class="w"> </span><span class="c1">// 7章の DataKey で SSE-KMS 暗号化</span>
+<span class="w">  </span><span class="nx">removalPolicy</span><span class="o">:</span><span class="w"> </span><span class="kt">cdk.RemovalPolicy.DESTROY</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">autoDeleteObjects</span><span class="o">:</span><span class="w"> </span><span class="kt">true</span><span class="p">,</span>
+<span class="p">});</span>
+</code></pre></div><p>アーティファクトは、パイプラインを実行するたびに作り直せる一時的なデータです。そのため、鍵や台帳とは違い、スタックと一緒に削除する <code>DESTROY</code> にしています。何を <code>RETAIN</code> にし、何を <code>DESTROY</code> にするかは、「失ったら取り戻せるか」で決めましょう。</p>
+<h3 id="s9-8">テストと synth を実行する CodeBuild</h3>
+<p>CodeBuild の処理内容は、<strong>buildspec</strong> と呼ばれる設定で書きます。サンプルでは、CDK のコードの中に buildspec を書いています。</p><div class="code-block"><div class="code-file">samples/cdk/lib/pipeline-stack.ts（抜粋）</div><pre class="hl"><code class="language-ts"><span class="kd">const</span><span class="w"> </span><span class="nx">buildProject</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">codebuild</span><span class="p">.</span><span class="nx">PipelineProject</span><span class="p">(</span><span class="k">this</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;BuildProject&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">environment</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">buildImage</span><span class="o">:</span><span class="w"> </span><span class="kt">codebuild.LinuxBuildImage.AMAZON_LINUX_2023_5</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nx">buildSpec</span><span class="o">:</span><span class="w"> </span><span class="kt">codebuild.BuildSpec.fromObject</span><span class="p">({</span>
+<span class="w">    </span><span class="nx">version</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;0.2&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">phases</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nx">install</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="s2">&quot;runtime-versions&quot;</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">nodejs</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;22&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">golang</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;1.25&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">        </span><span class="nx">commands</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;npm ci --prefix cdk&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">      </span><span class="nx">build</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">commands</span><span class="o">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">          </span><span class="s2">&quot;bash scripts/build-lambda.sh&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="s2">&quot;cd cdk &amp;&amp; npx tsc --noEmit &amp;&amp; npm test &amp;&amp; npx cdk synth&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="p">],</span>
+<span class="w">      </span><span class="p">},</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">    </span><span class="nx">artifacts</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nx">files</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;cdk/cdk.out/**/*&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;cdk/package.json&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;cdk/package-lock.json&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="p">},</span>
+<span class="w">  </span><span class="p">}),</span>
+<span class="p">});</span>
+</code></pre></div><p><code>npm ci</code> は、<code>package-lock.json</code> に書かれたバージョンのとおりに依存パッケージを入れるコマンドです。手元と CodeBuild で同じバージョンが使われるので、「手元では動いたのに」を防げます。</p><aside class="msg msg-info"><div class="msg-body"><p>CodeBuild で使えるランタイムのバージョンは、ビルドイメージごとに決まっています。上の <code>nodejs: "22"</code> や <code>golang: "1.25"</code> が使えるかは、CodeBuild のドキュメントにある「利用可能なランタイム」の一覧で確認してください。イメージが更新されると、使えるバージョンも変わります。</p></div></aside><h3 id="s9-9">変更セットを作る</h3>
+<p>変更セットの作成には、CDK CLI の <code>--method=prepare-change-set</code> を使います。変更セットを作るところで止まり、実行はしません。</p><div class="code-block"><div class="code-file">PrepareChangeSet の CodeBuild で実行するコマンド</div><pre class="hl"><code class="language-bash">npm<span class="w"> </span>ci<span class="w"> </span>--prefix<span class="w"> </span>cdk
+<span class="nb">cd</span><span class="w"> </span>cdk<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npx<span class="w"> </span>cdk<span class="w"> </span>deploy<span class="w"> </span>--app<span class="w"> </span>cdk.out<span class="w"> </span>KmsStack<span class="w"> </span>CertIssuerStack<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--method<span class="o">=</span>prepare-change-set<span class="w"> </span>--change-set-name<span class="w"> </span>iac-book-pipeline<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--require-approval<span class="w"> </span>never
+</code></pre></div><p><code>--app cdk.out</code> は、<code>Build</code> ステージで合成済みのテンプレートをそのまま使う指定です。もう一度 synth し直さないので、テストしたテンプレートと、変更セットにするテンプレートが確実に一致します。<code>--require-approval never</code> は、CDK CLI が IAM の変更について確認を求めるプロンプトを出さないための指定です。人による確認は、次の承認ステージで行います。</p>
+<h3 id="s9-10">承認と実行</h3><div class="code-block"><div class="code-file">samples/cdk/lib/pipeline-stack.ts（抜粋）</div><pre class="hl"><code class="language-ts"><span class="p">{</span>
+<span class="w">  </span><span class="nx">stageName</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Approve&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">actions</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="ow">new</span><span class="w"> </span><span class="nx">cpactions</span><span class="p">.</span><span class="nx">ManualApprovalAction</span><span class="p">({</span><span class="w"> </span><span class="nx">actionName</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;ApproveChangeSet&quot;</span><span class="w"> </span><span class="p">})],</span>
+<span class="p">},</span>
+<span class="p">{</span>
+<span class="w">  </span><span class="nx">stageName</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Deploy&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nx">actions</span><span class="o">:</span><span class="w"> </span><span class="kt">DEPLOY_STACKS.map</span><span class="p">(</span>
+<span class="w">    </span><span class="p">(</span><span class="nx">stackName</span><span class="p">,</span><span class="w"> </span><span class="nx">i</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span>
+<span class="w">      </span><span class="ow">new</span><span class="w"> </span><span class="nx">cpactions</span><span class="p">.</span><span class="nx">CloudFormationExecuteChangeSetAction</span><span class="p">({</span>
+<span class="w">        </span><span class="nx">actionName</span><span class="o">:</span><span class="w"> </span><span class="sb">`Execute-</span><span class="si">${</span><span class="nx">stackName</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">stackName</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">changeSetName</span><span class="o">:</span><span class="w"> </span><span class="kt">CHANGE_SET_NAME</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">runOrder</span><span class="o">:</span><span class="w"> </span><span class="kt">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mf">1</span><span class="p">,</span><span class="w"> </span><span class="c1">// KmsStack → CertIssuerStack の順</span>
+<span class="w">      </span><span class="p">})</span>
+<span class="w">  </span><span class="p">),</span>
+<span class="p">},</span>
+</code></pre></div><p>承認する人は、CloudFormation のコンソールで変更セットを開き、次の点を確かめます。</p>
+<ul>
+<li><code>Replacement</code> が <code>True</code> や <code>Conditional</code> のリソースはないか（特に鍵、テーブル、バケット）</li>
+<li>IAM ポリシーやキーポリシーの変更が、意図したとおりか</li>
+<li>変更が想定したスタックとリソースだけに収まっているか</li>
+</ul>
+<p>問題があれば承認を拒否します。拒否するとパイプラインはそこで止まり、変更セットは実行されません。</p>
+<p><code>Deploy</code> ステージでは、<code>runOrder</code> で実行の順番を決めています。<code>CertIssuerStack</code> は <code>KmsStack</code> の鍵を参照しているので、同時ではなく順番に実行します。</p><aside class="msg msg-alert"><div class="msg-body"><p>スタックをまたぐ参照（エクスポートとインポート）を新しく追加するときは注意が必要です。変更セットは実行前にまとめて作るので、まだ存在しないエクスポートを参照する変更セットは、作成の段階で失敗することがあります。その場合は、参照される側（<code>KmsStack</code>）の変更だけを先にパイプラインに流し、次の実行で参照する側を変更します。</p></div></aside><h2 id="s9-11">権限をブートストラップ資材に寄せる</h2>
+<p>5章で紹介した <code>cdk bootstrap</code> は、デプロイに使う IAM ロールをアカウントに作ります。パイプラインでも、このロールを使います。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>ロール</th>
+<th>役割</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>deploy ロール</td>
+<td>変更セットの作成や、スタックの状態の参照</td>
+</tr>
+<tr>
+<td>file-publishing ロール</td>
+<td>Lambda のコードなどの資材を、ブートストラップ用のバケットに置く</td>
+</tr>
+<tr>
+<td>CloudFormation 実行ロール</td>
+<td>CloudFormation が、実際にリソースを作成・変更する</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>PrepareChangeSet</code> の CodeBuild には、deploy ロールと file-publishing ロールを引き受ける <code>sts:AssumeRole</code> だけを与えます。CodeBuild 自身に KMS や DynamoDB を操作する権限を与える必要はありません。</p><div class="code-block"><div class="code-file">samples/cdk/lib/pipeline-stack.ts（抜粋）</div><pre class="hl"><code class="language-ts"><span class="nx">prepareProject</span><span class="p">.</span><span class="nx">addToRolePolicy</span><span class="p">(</span><span class="ow">new</span><span class="w"> </span><span class="nx">iam</span><span class="p">.</span><span class="nx">PolicyStatement</span><span class="p">({</span>
+<span class="w">  </span><span class="nx">actions</span><span class="o">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;sts:AssumeRole&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="c1">// ブートストラップが作るロール（cdk-hnb659fds-deploy-role-… など）だけに限定</span>
+<span class="w">  </span><span class="nx">resources</span><span class="o">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="sb">`arn:</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">partition</span><span class="si">}</span><span class="sb">:iam::</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">account</span><span class="si">}</span><span class="sb">:role/cdk-hnb659fds-*-</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">account</span><span class="si">}</span><span class="sb">-</span><span class="si">${</span><span class="k">this</span><span class="p">.</span><span class="nx">region</span><span class="si">}</span><span class="sb">`</span><span class="p">,</span>
+<span class="w">  </span><span class="p">],</span>
+<span class="p">}));</span>
+</code></pre></div><aside class="msg msg-info"><div class="msg-body"><p>CloudFormation 実行ロールには、既定で管理者に近い強い権限が付きます。本番のアカウントでは、<code>cdk bootstrap --cloudformation-execution-policies</code> で、実行ロールに付けるポリシーを必要な範囲に絞ることを検討してください。</p></div></aside><h2 id="s9-12">パイプライン自身の更新</h2>
+<p>CDK には、パイプラインが自分自身の定義も更新する「セルフミューテーション」の仕組み（CDK Pipelines）があります。便利な一方で、パイプラインの権限を広げる変更も、パイプライン自身が反映できてしまいます。</p>
+<p>このサンプルは、学びやすさと安全性を優先して、セルフミューテーションを使いません。<code>PipelineStack</code> は、初回も変更時も、管理者が手元から反映します。</p><div class="code-block"><div class="code-file">初回のデプロイ（管理者が実行）</div><pre class="hl"><code class="language-bash"><span class="nb">cd</span><span class="w"> </span>samples/cdk
+npx<span class="w"> </span>cdk<span class="w"> </span>deploy<span class="w"> </span>KmsStack<span class="w"> </span>PipelineStack
+</code></pre></div><p><code>PipelineStack</code> のデプロイ後、CodeCommit のリポジトリに <code>samples/</code> の中身を push すると、パイプラインが動きはじめます。</p>
+<h2 id="s9-13">GitHub をソースにする</h2>
+<p>ソースコードを GitHub や GitLab で管理している場合は、AWS CodeConnections を使います。コンソールで GitHub との接続（コネクション）を作って承認し、ソースステージのアクションを <code>CodeStarConnectionsSourceAction</code> に差し替えます。Build 以降のステージは、そのまま使えます。</p>
+<h2 id="s9-14">コストの目安</h2>
+<p>CodePipeline V2 は、アクションの実行時間に応じた料金です。CodeBuild はビルドの実行時間、CodeCommit はユーザー数とストレージ量などに応じて課金されます。いずれも無料利用枠がある場合がありますが、料金体系は変わることがあります。使う前に、各サービスの料金ページで確認してください（2026年9月時点）。</p>
+<h2 id="s9-15">まとめ</h2>
+<ul>
+<li>パイプラインを使うと、マージされたコードだけが決まった手順で本番に届きます。開発者に本番の変更権限を配らずに済みます。</li>
+<li>サンプルのパイプラインは、ソース取得、テストと synth、変更セットの作成、人の承認、変更セットの実行の五段階です。</li>
+<li>承認では、変更セットの <code>Replacement</code> と、IAM・キーポリシーの変更を重点的に確かめます。</li>
+<li>CodeBuild の権限は、ブートストラップのロールを引き受ける <code>sts:AssumeRole</code> に絞ります。</li>
+<li>パイプライン自身の更新は、管理者が <code>cdk deploy</code> で行います。</li>
+</ul>
+<h2 id="s9-16">確認問題</h2>
+<p><strong>問1.</strong> <code>PrepareChangeSet</code> で <code>cdk synth</code> をやり直さず、<code>--app cdk.out</code> を使うのはなぜですか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p><code>Build</code> ステージでテストしたテンプレートと、変更セットにするテンプレートを確実に一致させるためです。synth をやり直すと、依存パッケージや環境の違いで、テストしていないテンプレートが生まれる可能性があります。</p></div></details><p><strong>問2.</strong> 承認者が変更セットを見て、<code>CertIssuerStack</code> の台帳テーブルの <code>Replacement</code> が <code>True</code> になっていることに気づきました。どうすべきですか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>承認を拒否して、パイプラインを止めます。置き換えになるとテーブルが新しく作られ、発行済み証明書の台帳が引き継がれません。論理 ID の変更や、置き換えが必要なプロパティの変更がないかをコードで確かめて、置き換えにならない方法に直します。</p></div></details><p><strong>問3.</strong> このサンプルが、パイプラインのセルフミューテーションを使わないのはなぜですか。</p><details class="acc"><summary>解答例</summary><div class="acc-body"><p>パイプラインが自分自身の権限を広げる変更も、承認なしで反映できてしまうのを避けるためです。<code>PipelineStack</code> の変更は管理者が手元で <code>cdk diff</code> を確かめてから <code>cdk deploy</code> するので、パイプラインの権限の変更を人が必ず確認できます。</p></div></details>
+      </div>
+    </article>
+    <nav class="pager" aria-label="チャプター移動">
+<a class="pager-link prev" href="08-mtls-cert-issuer.html" rel="prev"><span class="pager-dir">← 前のチャプター</span><span class="pager-title">実践2：mTLS用クライアント証明書を発行するLambda</span></a>
+<a class="pager-link next" href="10-operations-design.html" rel="next"><span class="pager-dir">次のチャプター →</span><span class="pager-title">運用で困らないIaCの設計</span></a>
+    </nav>
+  </main>
+  <aside class="page-toc" id="page-toc" aria-label="このチャプターの目次">
+    <div class="toc-card">
+      <p class="toc-heading">目次</p>
+<ol class="toc"><li><a href="#s9-1">この章で分かること</a></li><li><a href="#s9-2">なぜパイプラインでデプロイするのか</a></li><li><a href="#s9-3">Code シリーズの役割分担</a></li><li><a href="#s9-4">この章で作るパイプライン</a><ol><li><a href="#s9-5">リポジトリの構成</a></li></ol></li><li><a href="#s9-6">CDK でパイプラインを書く</a><ol><li><a href="#s9-7">アーティファクト用のバケット</a></li><li><a href="#s9-8">テストと synth を実行する CodeBuild</a></li><li><a href="#s9-9">変更セットを作る</a></li><li><a href="#s9-10">承認と実行</a></li></ol></li><li><a href="#s9-11">権限をブートストラップ資材に寄せる</a></li><li><a href="#s9-12">パイプライン自身の更新</a></li><li><a href="#s9-13">GitHub をソースにする</a></li><li><a href="#s9-14">コストの目安</a></li><li><a href="#s9-15">まとめ</a></li><li><a href="#s9-16">確認問題</a></li></ol>
+    </div>
+  </aside>
+</div>
+<footer class="site-footer">
+  <p>AWSで学ぶ Infrastructure as Code 実践入門 ／ 最終更新 2026-09-29</p>
+  <p class="footer-note">記載のサービス仕様・料金は執筆時点のものです。実装前に AWS 公式ドキュメントで最新情報を確認してください。</p>
+</footer>
+</body>
+</html>

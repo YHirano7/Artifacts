@@ -1,0 +1,45 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.stage { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.stage .top { display: flex; align-items: center; gap: 12px; }
+.no { font-size: 13px; font-weight: 800; color: var(--blue-vivid); letter-spacing: .08em; }
+.stage .body { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.goal { margin-top: auto; background: var(--band); border-radius: 8px; padding: 10px 12px; }
+.goal b { display: block; font-size: 12px; color: var(--blue-vivid); margin-bottom: 2px; }
+.chs { list-style: none; margin: 4px 0 0; padding: 10px 0 0; border-top: 1px dashed #c5cbe0; display: flex; flex-direction: column; gap: 6px; }
+.chs li { font-size: 13.5px; color: #3a3f55; display: flex; gap: 8px; align-items: baseline; }
+.chs li i { font-style: normal; font-weight: 800; color: var(--navy-dark); min-width: 34px; }
+.chain { margin-top: 16px; display: flex; align-items: center; gap: 14px; }
+.chain .lbl { font-size: 15px; font-weight: 800; color: var(--gold); white-space: nowrap; }
+.node { flex: 1; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.35); border-radius: 8px; padding: 8px 12px; font-size: 14px; line-height: 1.5; }
+.node b { color: #fff; font-size: 15px; }
+.node span { color: #c9d3f5; font-size: 12.5px; display: block; }
+.ar { color: var(--gold); font-size: 22px; font-weight: 800; }
+</style></head><body>
+<div class="title">この本の地図：4つのステップでIaCを身につける</div>
+<div class="rule"></div>
+<div class="lead">「なぜ必要か」から始めて、実務の題材を作り、長く運用できる設計までを順に積み上げます</div>
+<div class="area">
+  <div class="card stage"><div class="top"><svg class="icon" viewBox="0 0 24 24"><path d="M4 19V5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2z"/><path d="M8 7h6M8 11h6"/></svg><div><div class="no">STEP 1 ／ 2〜3章</div><div class="h">基礎</div></div></div>
+    <div class="body"><ul class="dots t"><li>手作業の何が問題か</li><li>宣言的・冪等・差分確認</li><li>ツールの種類と選び方</li></ul><ul class="chs"><li><i>2章</i>IaCとは何か</li><li><i>3章</i>AWSのIaCツールを見渡す</li></ul>
+    <div class="goal"><b>身につくこと</b><span class="s">IaCを導入する理由を、チームに説明できる</span></div></div></div>
+  <svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg>
+  <div class="card stage"><div class="top"><svg class="icon" viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg><div><div class="no">STEP 2 ／ 4〜6章</div><div class="h">ツール</div></div></div>
+    <div class="body"><ul class="dots t"><li>CloudFormationの基本</li><li>CDKで書いてテストする</li><li>IAMで最小権限を表現する</li></ul><ul class="chs"><li><i>4章</i>CloudFormationの基本</li><li><i>5章</i>AWS CDK</li><li><i>6章</i>IAMをコードで設計する</li></ul>
+    <div class="goal"><b>身につくこと</b><span class="s">テンプレートとCDKのコードを読み書きできる</span></div></div></div>
+  <svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg>
+  <div class="card stage"><div class="top"><svg class="icon" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z"/></svg><div><div class="no">STEP 3 ／ 7〜9章</div><div class="h">実践</div></div></div>
+    <div class="body"><ul class="dots t"><li>KMSの鍵を管理する</li><li>mTLS用の証明書を発行</li><li>デプロイを自動化する</li></ul><ul class="chs"><li><i>7章</i>KMS</li><li><i>8章</i>証明書発行Lambda</li><li><i>9章</i>Codeシリーズ</li></ul>
+    <div class="goal"><b>身につくこと</b><span class="s">鍵・証明書・パイプラインを実務の品質で作れる</span></div></div></div>
+  <svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg>
+  <div class="card stage"><div class="top"><svg class="icon" viewBox="0 0 24 24"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg><div><div class="no">STEP 4 ／ 10〜11章</div><div class="h">運用</div></div></div>
+    <div class="body"><ul class="dots t"><li>スタックの分け方</li><li>データと鍵を削除から守る</li><li>ドリフト・コストへの備え</li></ul><ul class="chs"><li><i>10章</i>運用で困らない設計</li><li><i>11章</i>次に学ぶこと</li></ul>
+    <div class="goal"><b>身につくこと</b><span class="s">何年も変更し続けられる構成を設計できる</span></div></div></div>
+</div>
+<div class="band chain">
+  <div class="lbl">実践の3章は<br>1つのシステム</div>
+  <div class="node"><b>7章 KMSの鍵</b><span>データ暗号化用と、CAの署名用</span></div><div class="ar">→</div>
+  <div class="node"><b>8章 証明書発行Lambda</b><span>KMSの鍵で署名し、mTLSのAPIで検証</span></div><div class="ar">→</div>
+  <div class="node"><b>9章 パイプライン</b><span>変更セットと承認を経てデプロイ</span></div>
+</div>
+</body></html>

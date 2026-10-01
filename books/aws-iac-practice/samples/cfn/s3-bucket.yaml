@@ -1,0 +1,37 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Sample private S3 bucket for Infrastructure as Code book
+Parameters:
+  BucketName:
+    Type: String
+    Default: iac-book-example-bucket
+    Description: Globally unique bucket name
+  EnableVersioning:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+Conditions:
+  VersioningEnabled: !Equals [!Ref EnableVersioning, 'true']
+Resources:
+  SampleBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: !If [VersioningEnabled, {Status: Enabled}, {Status: Suspended}]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+Outputs:
+  BucketName:
+    Description: Created bucket name
+    Value: !Ref SampleBucket
+  BucketArn:
+    Description: Created bucket ARN
+    Value: !GetAtt SampleBucket.Arn

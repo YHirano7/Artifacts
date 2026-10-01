@@ -1,0 +1,55 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css">
+<style>
+.area { flex-direction: column; gap: 10px; justify-content: center; }
+.pick { margin-top: 16px; display: flex; gap: 16px; align-items: center; }
+.pick .lbl { color: var(--gold); font-weight: 800; font-size: 15px; white-space: nowrap; }
+.pick .it { flex: 1; font-size: 13.5px; line-height: 1.5; border-left: 3px solid rgba(255,255,255,.35); padding-left: 12px; }
+.pick .it b { display: block; font-size: 15px; }
+.pick .it span { color: #c9d3f5; font-size: 12.5px; }
+.row { display: flex; gap: 14px; align-items: stretch; }
+.row .side { width: 150px; flex: none; display: flex; flex-direction: column; justify-content: center; }
+.row .side b { font-size: 17px; color: var(--navy-darkest); }
+.row .side span { font-size: 12.5px; color: var(--ink-sub); line-height: 1.5; }
+.tool { flex: 1; background: var(--paper); border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+.tool .n { font-size: 18px; font-weight: 800; color: var(--navy-darkest); }
+.tool .d { font-size: 14px; color: var(--ink); line-height: 1.55; margin-top: 4px; }
+.tool .tag { font-size: 11.5px; font-weight: 700; color: var(--blue-vivid); letter-spacing: .04em; }
+.engine { flex: 3; background: var(--navy-dark); color: #fff; border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; gap: 16px; }
+.engine .n { font-size: 20px; font-weight: 800; }
+.engine .d { font-size: 13.5px; color: #dbe2fa; line-height: 1.55; }
+.tf { flex: 1; background: #fff8d6; border: 1.5px solid var(--gold); border-radius: 12px; padding: 14px 16px; }
+.tf .n { font-size: 18px; font-weight: 800; color: var(--navy-darkest); }
+.tf .d { font-size: 13px; line-height: 1.5; }
+.down { display: flex; gap: 14px; } .down .side { width: 150px; flex: none; }
+.down .a { flex: 1; text-align: center; color: var(--blue-vivid); font-size: 20px; font-weight: 800; line-height: 1; }
+.down .a.none { visibility: hidden; }
+.aws { background: var(--band); border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 18px; flex: 1; font-size: 15px; font-weight: 700; color: var(--navy-darkest); text-align: center; }
+.aws span { font-weight: 400; font-size: 13px; color: var(--ink-sub); }
+</style></head><body>
+<div class="title">CDKもSAMも、最後はCloudFormationが適用する</div>
+<div class="rule"></div>
+<div class="lead">ツールは「どう書くか」と「どう適用するか」の2層で整理すると、関係が見えてきます</div>
+<div class="area">
+  <div class="row">
+    <div class="side"><b>書き方の層</b><span>人がコードを書く場所</span></div>
+    <div class="tool"><div class="tag">YAML / JSON のテンプレート</div><div class="n">CloudFormation</div><div class="d">リソースを1つずつ直接書く。すべての土台</div></div>
+    <div class="tool"><div class="tag">TypeScript・Python など</div><div class="n">AWS CDK</div><div class="d">プログラムで書き、テンプレートを生成する</div></div>
+    <div class="tool"><div class="tag">YAML（短縮記法）</div><div class="n">AWS SAM</div><div class="d">サーバーレス向けの短い書き方を展開する</div></div>
+    <div class="tool" style="border-color: var(--gold)"><div class="tag" style="color:#8a7400">HCL</div><div class="n">Terraform</div><div class="d">独自の言語で書く。AWS以外も扱える</div></div>
+  </div>
+  <div class="down"><div class="side"></div><div class="a">↓</div><div class="a">↓ synth</div><div class="a">↓ 変換</div><div class="a">↓</div></div>
+  <div class="row">
+    <div class="side"><b>適用の層</b><span>差分を計算し、APIを呼ぶ場所</span></div>
+    <div class="engine"><svg class="icon" viewBox="0 0 24 24" style="stroke:#fff"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></svg><div><div class="n">AWS CloudFormation</div><div class="d">スタック単位で状態をAWSが管理。変更セットで差分を確認し、失敗時は自動でロールバック</div></div></div>
+    <div class="tf"><div class="n">Terraform CLI</div><div class="d">状態ファイル（state）を利用者がS3などで管理する</div></div>
+  </div>
+  <div class="down"><div class="side"></div><div class="a">↓</div><div class="a none">↓</div><div class="a none">↓</div><div class="a">↓</div></div>
+  <div class="row"><div class="side"></div><div class="aws">AWS のリソース <span>（S3、KMS、Lambda、IAM など）</span></div></div>
+</div>
+<div class="band pick">
+  <div class="lbl">選び方の目安</div>
+  <div class="it"><b>AWSだけ・チームにTSやPythonの経験</b><span>AWS CDK（この本の中心）</span></div>
+  <div class="it"><b>Lambda中心の小さなアプリ</b><span>AWS SAM</span></div>
+  <div class="it"><b>AWS以外のサービスもまとめて管理</b><span>Terraform</span></div>
+</div>
+</body></html>

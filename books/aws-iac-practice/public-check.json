@@ -1,0 +1,8 @@
+{
+  "allowed_numbers": ["111122223333", "123456789012"],
+  "allow_domains": [
+    "docs.aws.amazon.com", "aws.amazon.com", "amazonaws.com", "github.com",
+    "pkg.go.dev", "go.dev", "nodejs.org", "npmjs.com", "python.org",
+    "datatracker.ietf.org", "www.rfc-editor.org", "developer.mozilla.org"
+  ]
+}

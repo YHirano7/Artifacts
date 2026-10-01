@@ -1,0 +1,23 @@
+{
+  "name": "iac-book-cdk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AWSで学ぶ Infrastructure as Code 実践入門 サンプル CDK アプリ",
+  "scripts": {
+    "test": "jest",
+    "cdk": "cdk"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.270.0",
+    "constructs": "10.8.1"
+  },
+  "devDependencies": {
+    "@types/jest": "29.5.14",
+    "@types/node": "22.20.4",
+    "aws-cdk": "2.1142.0",
+    "jest": "29.7.0",
+    "ts-jest": "29.4.12",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.3"
+  }
+}
