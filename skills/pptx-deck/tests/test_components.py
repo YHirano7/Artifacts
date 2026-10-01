@@ -10,6 +10,7 @@ from pathlib import Path
 from pptx import Presentation
 from pptx.oxml.xmlchemy import OxmlElement
 from pptx.oxml.ns import qn
+from pptx.util import Inches
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
@@ -93,6 +94,60 @@ class TestComponents(unittest.TestCase):
                         return shape_el
             return None
 
+        def generated_bounds(slide):
+            positions = []
+            for shape in slide.shapes:
+                props = shape._element.xpath(
+                    "./p:nvSpPr/p:cNvPr | ./p:nvGrpSpPr/p:cNvPr | "
+                    "./p:nvCxnSpPr/p:cNvPr | "
+                    "./p:nvGraphicFramePr/p:cNvPr")
+                if (props and props[0].get("descr") == GENERATED_MARK
+                        and props[0].get("name") != "Component lead"):
+                    positions.append((shape.top, shape.top + shape.height))
+            self.assertTrue(positions)
+            return min(top for top, _ in positions), max(
+                bottom for _, bottom in positions)
+
+        lead_slide = prs.slides[1]
+        lead = next(shape for shape in lead_slide.shapes
+                    if shape.name == "Component lead")
+        self.assertAlmostEqual(lead.top / EMU_PER_IN, 1.8, delta=0.01)
+        content_top, content_bottom = generated_bounds(lead_slide)
+        expected_center = (lead.top + lead.height + Inches(0.12)
+                           + Inches(6.75)) / 2
+        self.assertAlmostEqual((content_top + content_bottom) / 2,
+                               expected_center, delta=Inches(0.03))
+
+        takeaway_top, takeaway_bottom = generated_bounds(prs.slides[2])
+        self.assertAlmostEqual(
+            (takeaway_top + takeaway_bottom) / 2,
+            Inches((1.8 + 6.75) / 2), delta=Inches(0.03))
+
+        charts = [shape for slide in prs.slides for shape in slide.shapes
+                  if shape.name == "Library chart"]
+        self.assertEqual(len(charts), 2)
+        for chart in charts:
+            self.assertAlmostEqual(
+                chart.height / EMU_PER_IN, 4.95, delta=0.01)
+        side_chart = prs.slides[20]
+        chart = next(shape for shape in side_chart.shapes
+                     if shape.name == "Library chart")
+        panel = next(shape for shape in side_chart.shapes
+                     if shape.name == "Chart key points panel")
+        self.assertAlmostEqual(panel.top + panel.height / 2,
+                               chart.top + chart.height / 2,
+                               delta=Inches(0.01))
+
+        for name in ("Layer 1 item 1", "Roadmap track 1",
+                     "Checklist item 1", "Checklist owner 2",
+                     "Checklist due 2", "Chart point 1"):
+            body_pr = find_shape(name).find(
+                f"{qn('p:txBody')}/{qn('a:bodyPr')}")
+            self.assertEqual(body_pr.get("anchor"), "ctr", name)
+        check_run = find_shape("Checklist status 1").find(
+            f"{qn('p:txBody')}/{qn('a:p')}/{qn('a:r')}/{qn('a:rPr')}")
+        self.assertEqual(check_run.get("sz"), "1500")
+
         card_body = find_shape("Card 1 copy")
         body_paragraphs = card_body.xpath("./p:txBody/a:p")
         self.assertGreater(len(body_paragraphs), 1)
@@ -116,6 +171,20 @@ class TestComponents(unittest.TestCase):
         self.assertEqual(
             value_paragraphs[0].xpath("./a:r/a:t/text()"),
             ["1", " 窓口"])
+
+        cycle_nodes = [shape for shape in prs.slides[14].shapes
+                       if shape.name in {
+                           "Cycle 1", "Cycle 2", "Cycle 3", "Cycle 4"}]
+        self.assertEqual(len(cycle_nodes), 4)
+        for index, node in enumerate(cycle_nodes):
+            for other in cycle_nodes[index + 1:]:
+                overlaps = (
+                    node.left < other.left + other.width
+                    and other.left < node.left + node.width
+                    and node.top < other.top + other.height
+                    and other.top < node.top + node.height)
+                self.assertFalse(
+                    overlaps, f"{node.name} overlaps {other.name}")
 
         connectors = [shape for slide in prs.slides for shape in slide.shapes
                       if shape.name.startswith("Cycle connector")]
@@ -143,9 +212,105 @@ class TestComponents(unittest.TestCase):
         self.assertEqual(len(result["library"]), len(variants))
         self.assertIn("スキルの部品で描いた箇所", qa.stdout)
 
+    def test_minimal_cover_and_section_layouts(self):
+        prs = Presentation(str(self.template))
+
+        def get_layout(name):
+            return next(layout for layout in prs.slide_layouts
+                        if layout.name == name)
+
+        def get_placeholder(layout, idx):
+            return next(ph for ph in layout.placeholders
+                        if ph.placeholder_format.idx == idx)
+
+        def title_style(layout):
+            placeholder = get_placeholder(layout, 0)
+            level = placeholder._element.find(
+                f"{qn('p:txBody')}/{qn('a:lstStyle')}/{qn('a:lvl1pPr')}")
+            run = level.find(qn("a:defRPr"))
+            self.assertEqual(level.get("algn"), "l")
+            self.assertEqual(run.get("sz"), "4000")
+            self.assertEqual(run.get("b"), "1")
+            self.assertEqual(
+                run.find(f"{qn('a:solidFill')}/{qn('a:schemeClr')}")
+                .get("val"), "dk2")
+            self.assertAlmostEqual(placeholder.left / EMU_PER_IN, 0.9,
+                                   delta=0.01)
+            self.assertAlmostEqual(placeholder.top / EMU_PER_IN, 2.6,
+                                   delta=0.01)
+            return placeholder
+
+        cover = get_layout("Title Slide")
+        title_style(cover)
+        subtitle = get_placeholder(cover, 1)
+        self.assertAlmostEqual(subtitle.left / EMU_PER_IN, 0.9, delta=0.01)
+        self.assertAlmostEqual(subtitle.top / EMU_PER_IN, 3.47, delta=0.01)
+        subtitle_level = subtitle._element.find(
+            f"{qn('p:txBody')}/{qn('a:lstStyle')}/{qn('a:lvl1pPr')}")
+        subtitle_run = subtitle_level.find(qn("a:defRPr"))
+        self.assertEqual(subtitle_level.get("algn"), "l")
+        self.assertEqual(subtitle_run.get("sz"), "1800")
+        self.assertEqual(
+            subtitle_run.find(
+                f"{qn('a:solidFill')}/{qn('a:srgbClr')}").get("val"),
+            "595F6B")
+
+        for name in ("Title Slide", "Section Header"):
+            layout = get_layout(name)
+            if name == "Section Header":
+                title_style(layout)
+            accent = next(shape for shape in layout.shapes
+                          if shape.name == f"{name} Accent")
+            self.assertAlmostEqual(accent.left / EMU_PER_IN, 0.9,
+                                   delta=0.01)
+            self.assertAlmostEqual(accent.top / EMU_PER_IN, 2.28,
+                                   delta=0.01)
+            self.assertAlmostEqual(accent.width / EMU_PER_IN, 1.2,
+                                   delta=0.01)
+            self.assertAlmostEqual(accent.height / EMU_PER_IN, 0.06,
+                                   delta=0.01)
+            self.assertEqual(
+                accent._element.spPr.find(
+                    f"{qn('a:solidFill')}/{qn('a:schemeClr')}")
+                .get("val"), "accent2")
+
+    def test_gallery_content_density(self):
+        deck = json.loads(GALLERY.read_text(encoding="utf-8"))
+        slides = deck["slides"]
+        for slide in slides:
+            if slide.get("component") == "cards":
+                for item in slide["slots"]["items"]:
+                    self.assertEqual(len(item["body"]), 3)
+            elif slide.get("component") == "comparison":
+                for side in ("left", "right"):
+                    self.assertEqual(len(slide["slots"][side]["items"]), 5)
+            elif slide.get("component") == "layers":
+                for layer in slide["slots"]["layers"]:
+                    self.assertIn(len(layer["items"]), (3, 4))
+            elif (slide.get("component") == "process"
+                  and slide.get("variant") == "circles"):
+                for step in slide["slots"]["steps"]:
+                    self.assertIn(step["detail"].count("。"), (1, 2))
+            elif slide.get("component") == "cycle":
+                for step in slide["slots"]["steps"]:
+                    self.assertIn(step["detail"].count("。"), (1, 2))
+
     def test_theme_style_serialization_and_automatic_contrast(self):
         prs = Presentation(str(self.template))
         style = resolve_style(prs, {})
+        default_sizes = {
+            "heading": 20, "body": 16, "caption": 13,
+            "number": 48, "min": 11,
+        }
+        self.assertEqual(style.sizes, default_sizes)
+        schema = json.loads(
+            (ROOT / "schema" / "template-map.schema.json").read_text(
+                encoding="utf-8"))
+        size_schema = schema["properties"]["style"]["properties"]["sizes"][
+            "properties"]
+        for name, value in default_sizes.items():
+            self.assertEqual(size_schema[name]["minimum"], 11)
+            self.assertEqual(size_schema[name]["default"], value)
         self.assertEqual(style.colors["primary"].scheme, "accent1")
         self.assertEqual(style.colors["on_primary"].scheme, "lt1")
         self.assertEqual(ROLE_DEFAULTS["surface"], "bg2")
@@ -268,12 +433,16 @@ class TestComponents(unittest.TestCase):
                           if item.name == name)
             title = next(ph for ph in layout.placeholders
                          if ph.placeholder_format.idx == 0)
-            self.assertAlmostEqual(title.top / EMU_PER_IN, 0.4, places=2)
+            cover_or_divider = name in ("Title Slide", "Section Header")
+            self.assertAlmostEqual(
+                title.top / EMU_PER_IN,
+                2.6 if cover_or_divider else 0.4, places=2)
             level = title._element.find(
                 f"{qn('p:txBody')}/{qn('a:lstStyle')}/"
                 f"{qn('a:lvl1pPr')}")
             run_props = level.find(qn("a:defRPr"))
-            self.assertEqual(run_props.get("sz"), "2800")
+            self.assertEqual(
+                run_props.get("sz"), "4000" if cover_or_divider else "2800")
             self.assertEqual(run_props.get("b"), "1")
             self.assertEqual(
                 run_props.find(

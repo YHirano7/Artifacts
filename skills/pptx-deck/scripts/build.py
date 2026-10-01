@@ -725,15 +725,9 @@ def _prototype_element(ctx, slide, slot_def, where, kind,
             remove_shape_el(el)
         return synth_node_proto(kind)
     proto = copy.deepcopy(el)
-    _remove_shape_styles(proto)
     if remove:
         remove_shape_el(el)
     return proto
-
-
-def _remove_shape_styles(element):
-    for style in list(element.iter(qn("p:style"))):
-        style.getparent().remove(style)
 
 
 def synth_node_proto(kind):
@@ -1168,26 +1162,6 @@ def _set_xfrm(sp_el, x, y, w, h):
     xfrm.find(qn("a:ext")).set("cy", str(int(h)))
 
 
-def _set_round_rect_radius(sp_el):
-    geometry = sp_el.find(f"{qn('p:spPr')}/{qn('a:prstGeom')}")
-    if geometry is None or geometry.get("prst") != "roundRect":
-        return
-    ext = sp_el.find(
-        f"{qn('p:spPr')}/{qn('a:xfrm')}/{qn('a:ext')}")
-    width, height = int(ext.get("cx")), int(ext.get("cy"))
-    adjustment = max(
-        1, min(100000, round(0.06 * int(Inches(1))
-                             / min(width, height) * 100000)))
-    av_list = geometry.find(qn("a:avLst"))
-    if av_list is None:
-        av_list = etree.SubElement(geometry, qn("a:avLst"))
-    guide = av_list.find(f"{qn('a:gd')}[@name='adj']")
-    if guide is None:
-        guide = etree.SubElement(av_list, qn("a:gd"))
-        guide.set("name", "adj")
-    guide.set("fmla", f"val {adjustment}")
-
-
 def _proto_size(proto_el):
     bbox = _raw_bbox(proto_el)
     if bbox is None:
@@ -1203,7 +1177,6 @@ def _node_text(node):
 
 
 def _style_connector(conn, scheme_color):
-    _remove_shape_styles(conn._element)
     ln = conn.line._get_or_add_ln()
     ln.set("w", "19050")
     for child in list(ln):
@@ -1250,7 +1223,6 @@ def draw_orgchart(slide, tree, bbox, proto_el, connector_color, where):
         cx, y = pos[id(node)]
         el = copy.deepcopy(proto_el)
         _set_xfrm(el, cx - node_w / 2, y, node_w, ph)
-        _set_round_rect_radius(el)
         _mark_el(el, GENERATED_MARK)
         fill_node_text(el, _node_text(node))
         slide.shapes._spTree.append(el)

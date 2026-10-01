@@ -52,7 +52,7 @@ template-map.json にない component は、このライブラリから解決す
 
 - 図解は編集可能なPowerPoint図形で作られ、色とフォントはテンプレートに合わせる。mapの `style.palette` と `style.fonts` で上書きできる。
 - 色の既定は `primary=accent1`、`highlight=accent2`、`text=tx1`、`muted=tx1`、`surface=bg2`、`line=bg1`、`background=bg1`。配色はmapの `style.palette` で変更できる。
-- 既定サイズはheading 18pt、body 14pt、caption 12pt、number 40pt、最小10pt。mapの `style.sizes` で調整できる。
+- 既定サイズはheading 20pt、body 16pt、caption 13pt、number 48pt、最小11pt。mapの `style.sizes` で調整できる。
 - 内容が収まらない場合は最小サイズまで縮小する。最小サイズでも収まらなければbuild errorになるため、文章を短くするかスライドを分ける。
 
 全variantの例は `examples/component-gallery/deck.json` にある。

@@ -19,8 +19,8 @@ ROLE_DEFAULTS = {
     "surface": "bg2", "muted": "text", "line": "bg1",
     "background": "bg1",
 }
-DEFAULT_SIZES = {"heading": 18, "body": 14, "caption": 12,
-                 "number": 40, "min": 10}
+DEFAULT_SIZES = {"heading": 20, "body": 16, "caption": 13,
+                 "number": 48, "min": 11}
 
 
 @dataclass(frozen=True)
@@ -297,7 +297,8 @@ class DrawContext:
         shape.text_frame.margin_right = Inches(margin)
         shape.text_frame.margin_top = Inches(0.08)
         shape.text_frame.margin_bottom = Inches(0.08)
-        self.text_frame(shape, text, size, color, bold, align, heading, name)
+        self.text_frame(shape, text, size, color, bold, align, heading, name,
+                        anchor)
         mark_el(shape._element, GENERATED_MARK)
         return shape
 
@@ -480,6 +481,7 @@ def _draw_frame(dc, region, slots):
     top = y + lead_h + (0.12 if lead_h else 0)
     dc.frame = {
         "x": x, "y": y, "w": w, "h": h,
+        "content_top": top, "content_bottom": y + h,
         "takeaway": slots.get("takeaway"),
     }
     available_h = max(0.2, y + h - top)
@@ -505,6 +507,58 @@ def _finish_frame(dc, bottom):
              fill=dc.style.colors["primary"], line=None)
     dc.textbox("Takeaway text", x + 0.16, ty, w - 0.22, th, text,
                dc.style.sizes["body"], dc.style.colors["text"], bold=True)
+
+
+def _shape_c_nvpr(element):
+    tags = {
+        qn("p:sp"): "p:nvSpPr",
+        qn("p:grpSp"): "p:nvGrpSpPr",
+        qn("p:cxnSp"): "p:nvCxnSpPr",
+        qn("p:graphicFrame"): "p:nvGraphicFramePr",
+    }
+    tag = tags.get(element.tag)
+    return element.find(f"{qn(tag)}/{qn('p:cNvPr')}") if tag else None
+
+
+def _shape_xfrm(element):
+    if element.tag in (qn("p:sp"), qn("p:cxnSp")):
+        return element.find(f"{qn('p:spPr')}/{qn('a:xfrm')}")
+    if element.tag == qn("p:grpSp"):
+        return element.find(f"{qn('p:grpSpPr')}/{qn('a:xfrm')}")
+    if element.tag == qn("p:graphicFrame"):
+        return element.find(qn("p:xfrm"))
+    return None
+
+
+def _center_component(dc):
+    frame = dc.frame
+    bounds = []
+    elements = []
+    for element in dc.slide._element.spTree:
+        c_nvpr = _shape_c_nvpr(element)
+        if (c_nvpr is None or c_nvpr.get("descr") != GENERATED_MARK
+                or c_nvpr.get("name") == "Component lead"):
+            continue
+        xfrm = _shape_xfrm(element)
+        if xfrm is None:
+            continue
+        off, ext = xfrm.find(qn("a:off")), xfrm.find(qn("a:ext"))
+        if off is None or ext is None:
+            continue
+        top = int(off.get("y"))
+        bottom = top + int(ext.get("cy"))
+        bounds.append((top, bottom))
+        elements.append(off)
+    if not bounds:
+        return
+    top = min(bound[0] for bound in bounds)
+    bottom = max(bound[1] for bound in bounds)
+    content_top = round(frame["content_top"] * EMU_PER_IN)
+    content_bottom = round(frame["content_bottom"] * EMU_PER_IN)
+    offset = round((content_top + content_bottom - top - bottom) / 2)
+    if offset > 0:
+        for off in elements:
+            off.set("y", str(int(off.get("y")) + offset))
 
 
 def _text_height(text, width, size, padding=0.22, minimum=0.9):
@@ -665,7 +719,8 @@ def _draw_kpi(dc, region, slots, variant):
     note_h = max((_estimated_height(
         item.get("note", ""), cw - 0.24, dc.style.sizes["caption"])
         / EMU_PER_IN + 0.04) if item.get("note") else 0 for item in items)
-    block_h = max(0.9, 0.06 + 0.84 + 0.1 + label_h
+    value_h = 1.08
+    block_h = max(1.2, 0.06 + value_h + 0.1 + label_h
                   + (0.08 + note_h if note_h else 0.04))
     if block_h > h:
         block_h = h
@@ -690,18 +745,22 @@ def _draw_kpi(dc, region, slots, variant):
             els.append(dc.shape(
                 f"KPI {i} accent", cx + 0.06, y + 0.04, cw - 0.12, 0.06,
                 fill=dc.style.colors["primary"], line=None))
-            els.append(dc.rich_textbox(
-                f"KPI {i} value", cx + 0.12, y + 0.1, cw - 0.24, 0.84,
-                value_runs, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE))
+            value_box = dc.rich_textbox(
+                f"KPI {i} value", cx + 0.02, y + 0.1, cw - 0.04, value_h,
+                value_runs, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+            value_box.text_frame.margin_left = Inches(0.02)
+            value_box.text_frame.margin_right = Inches(0.02)
+            els.append(value_box)
+            label_y = y + 0.1 + value_h + 0.02
             els.append(dc.textbox(
-                f"KPI {i} label", cx + 0.12, y + 0.96, cw - 0.24, label_h,
+                f"KPI {i} label", cx + 0.12, label_y, cw - 0.24, label_h,
                 item["label"], dc.style.sizes["body"],
                 dc.style.colors["text"], bold=True, align=PP_ALIGN.CENTER,
                 heading=True))
             if item.get("note"):
                 els.append(dc.textbox(
                     f"KPI {i} note", cx + 0.12,
-                    y + 0.96 + label_h + 0.08, cw - 0.24, note_h,
+                    label_y + label_h + 0.08, cw - 0.24, note_h,
                     item["note"],
                     dc.style.sizes["caption"], dc.style.colors["muted"],
                     align=PP_ALIGN.CENTER))
@@ -714,17 +773,22 @@ def _draw_kpi(dc, region, slots, variant):
                 els.append(dc.shape(
                     f"KPI {i} divider", cx - gap / 2, y + 0.12, 0.01,
                     block_h - 0.24, fill=dc.style.colors["line"], line=None))
-            els.append(dc.rich_textbox(
-                f"KPI {i} value", cx + 0.08, y + 0.08, cw - 0.16, 0.84,
-                value_runs, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE))
+            value_box = dc.rich_textbox(
+                f"KPI {i} value", cx + 0.08, y + 0.08, cw - 0.16, value_h,
+                value_runs, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+            value_box.text_frame.margin_left = Inches(0.02)
+            value_box.text_frame.margin_right = Inches(0.02)
+            els.append(value_box)
+            label_y = y + 0.08 + value_h + 0.04
             els.append(dc.textbox(
-                f"KPI {i} label", cx + 0.08, y + 0.96, cw - 0.16, label_h,
+                f"KPI {i} label", cx + 0.08, label_y, cw - 0.16, label_h,
                 item["label"], dc.style.sizes["body"], dc.style.colors["text"],
                 bold=True,
                 align=PP_ALIGN.CENTER, heading=True))
             if item.get("note"):
                 els.append(dc.textbox(
-                    f"KPI {i} note", cx + 0.08, y + 0.96 + label_h + 0.08,
+                    f"KPI {i} note", cx + 0.08,
+                    label_y + label_h + 0.08,
                     cw - 0.16, note_h, item["note"],
                     dc.style.sizes["caption"], dc.style.colors["muted"],
                     align=PP_ALIGN.CENTER))
@@ -908,11 +972,7 @@ def _draw_matrix(dc, region, slots, variant):
     left_pad, bottom_pad, top_pad = 0.9, 0.95, 0.2
     grid_x, grid_y = x + left_pad, y + top_pad
     grid_w = w - left_pad - 0.14
-    quadrant_h = max(
-        _text_height(quad["items"], grid_w / 2 - 0.24,
-                     dc.style.sizes["body"], padding=0.58, minimum=0.9)
-        + 0.34 for quad in slots["quadrants"])
-    grid_h = min(h - bottom_pad - top_pad, quadrant_h * 2)
+    grid_h = h - bottom_pad - top_pad
     half_w, half_h = grid_w / 2, grid_h / 2
     emphasis = _emphasis(slots, 4, dc.where)
     for i, quad in enumerate(slots["quadrants"], 1):
@@ -954,7 +1014,7 @@ def _draw_matrix(dc, region, slots, variant):
                dc.style.sizes["caption"], dc.style.colors["muted"],
                align=PP_ALIGN.RIGHT)
     dc.textbox("Matrix x label", grid_x, grid_y + grid_h + 0.43,
-               grid_w, 0.34, slots["x_axis"]["label"],
+               grid_w, 0.4, slots["x_axis"]["label"],
                dc.style.sizes["caption"], dc.style.colors["text"],
                bold=True, align=PP_ALIGN.CENTER)
     ylab = dc.textbox("Matrix y label", x, grid_y, 0.36, grid_h,
@@ -975,10 +1035,10 @@ def _draw_matrix(dc, region, slots, variant):
 def _draw_pyramid(dc, region, slots, variant):
     x, y, w, h = _draw_frame(dc, region, slots)
     levels = slots["levels"]
-    shape_w = w * 0.55
+    shape_w = min(w * 0.55, h * 1.8)
     detail_x = x + shape_w + 0.42
     detail_w = w - shape_w - 0.5
-    row_h = min(0.76, (h - 0.04 * (len(levels) - 1)) / len(levels))
+    row_h = (h - 0.04 * (len(levels) - 1)) / len(levels)
     for i, level in enumerate(levels):
         display = i if variant == "pyramid" else len(levels) - i - 1
         frac = (display + 1) / len(levels)
@@ -1029,12 +1089,14 @@ def _draw_cycle(dc, region, slots, variant):
     ) / EMU_PER_IN + 0.03 for step in steps)
     details = [step.get("detail", "") for step in steps]
     detail_h = max((_estimated_height(
-        detail, node_w - 0.24, dc.style.sizes["body"]
+        detail, node_w, dc.style.sizes["body"]
     ) / EMU_PER_IN + 0.03) if detail else 0 for detail in details)
-    node_h = max(0.82, label_h + detail_h + (0.28 if detail_h else 0.24))
-    cluster_h = min(h, max(2.8, node_h * 2.6))
-    cx, cy = x + w / 2, y + cluster_h / 2
-    rx, ry = w * 0.36, cluster_h * 0.34
+    node_h = min(h, max(0.82, label_h + detail_h
+                        + (0.28 if detail_h else 0.24)))
+    diameter = min(h, w - node_w + node_h)
+    radius = max(0, (diameter - node_h) / 2)
+    cx, cy = x + w / 2, y + h / 2
+    rx = ry = radius
     nodes = []
     for i, step in enumerate(steps):
         angle = -math.pi / 2 + 2 * math.pi * i / len(steps)
@@ -1082,7 +1144,7 @@ def _draw_cycle(dc, region, slots, variant):
         if step.get("detail"):
             body = step["detail"]
             body_h = node_h - 0.24 - label_h
-            size = fit_size(body, node_w - 0.24, body_h,
+            size = fit_size(body, node_w, body_h,
                             dc.style.sizes["body"], dc.style.sizes["min"],
                             f"{dc.where}, steps[{i}].detail")
             els.append(dc.textbox(
@@ -1091,14 +1153,15 @@ def _draw_cycle(dc, region, slots, variant):
                 dc.style.colors["muted"], align=PP_ALIGN.CENTER))
         _group(dc, els, "Cycle", i)
     if slots.get("center"):
-        diameter = min(1.15, cluster_h * 0.3)
-        dc.shape("Cycle center", cx - diameter / 2, cy - diameter / 2,
-                 diameter, diameter, kind=MSO_SHAPE.OVAL,
+        center_diameter = min(1.15, diameter * 0.3)
+        dc.shape("Cycle center", cx - center_diameter / 2,
+                 cy - center_diameter / 2,
+                 center_diameter, center_diameter, kind=MSO_SHAPE.OVAL,
                  fill=dc.style.colors["primary"], line=None,
                  text=slots["center"], size=dc.style.sizes["caption"],
                  color=dc.style.colors["on_primary"], bold=True,
                  align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
-    _finish_frame(dc, y + cluster_h)
+    _finish_frame(dc, cy + diameter / 2)
 
 
 def _draw_layers(dc, region, slots, variant):
@@ -1125,7 +1188,7 @@ def _draw_layers(dc, region, slots, variant):
                 fill=dc.style.colors["surface"], line=dc.style.colors["line"],
                 text=item, size=dc.style.sizes["body"],
                 color=dc.style.colors["text"], align=PP_ALIGN.LEFT,
-                radius=False))
+                radius=False, anchor=MSO_ANCHOR.MIDDLE))
         _group(dc, els, "Layers", i)
     _finish_frame(dc, y + len(layers) * row_h + gap * (len(layers) - 1))
 
@@ -1140,7 +1203,7 @@ def _draw_roadmap(dc, region, slots, variant):
     header_h = 0.48
     milestone_h = 0.64 if milestones else 0
     row_y = y + header_h + milestone_h
-    row_h = min(0.66, (h - header_h - milestone_h) / len(tracks))
+    row_h = min(0.8, (h - header_h - milestone_h) / len(tracks))
     for j, period in enumerate(periods):
         dc.shape(f"Roadmap period {j + 1}", x + label_w + j * col_w, y,
                  col_w, header_h, fill=dc.style.colors["primary"], line=None,
@@ -1272,15 +1335,24 @@ def _draw_checklist(dc, region, slots, variant):
             else dc.style.colors["highlight"] if status == "risk" else None
         icon = "✓" if status == "done" else "!" if status == "risk" else ""
         icon_size = 0.38
-        els = [dc.shape(
+        status_shape = dc.shape(
             f"Checklist status {i}", x + 0.03,
             ry + (row_h - icon_size) / 2, icon_size, icon_size,
             kind=MSO_SHAPE.OVAL, fill=color,
             line=dc.style.colors["line"] if status == "todo" else None,
-            text=icon or None, size=dc.style.sizes["caption"],
+            text=icon or None, size=round(icon_size * 72 * 0.55),
             color=dc.style.colors["on_primary" if status == "done"
                                   else "on_highlight"],
-            bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)]
+            bold=True, align=PP_ALIGN.CENTER, anchor=MSO_ANCHOR.MIDDLE)
+        if icon:
+            frame = status_shape.text_frame
+            frame.margin_left = Inches(0.04)
+            frame.margin_right = Inches(0.04)
+            frame.margin_top = Inches(0.04)
+            frame.margin_bottom = Inches(0.04)
+            frame.paragraphs[0].runs[0].font.size = Pt(
+                round(icon_size * 72 * 0.55))
+        els = [status_shape]
         els.append(dc.textbox(
             f"Checklist item {i}", x + 0.42, ry + 0.02, text_w - 0.42,
             row_h - 0.04, item["text"], text_size,
@@ -1327,10 +1399,9 @@ def _draw_chart(dc, region, slots, variant):
     x, y, w, h = _draw_frame(dc, region, slots)
     chart_value = slots["chart"]
     points = slots.get("points", [])
-    panel_h = max(1.2, len(points) * 0.62 + 0.2) if points else 0
-    chart_h = min(h, max(2.7, panel_h))
+    panel_h = min(h, max(1.2, len(points) * 0.62 + 0.2)) if points else 0
+    chart_h = h
     if variant == "full":
-        chart_h = min(h, 3.45)
         frame = dc.slide.shapes.add_chart(
             CHART_TYPES[chart_value["type"]], Inches(x), Inches(y),
             Inches(w), Inches(chart_h), chart_data(chart_value))
@@ -1350,15 +1421,16 @@ def _draw_chart(dc, region, slots, variant):
     mark_el(frame._element, GENERATED_MARK)
     panel_x = x + chart_w + 0.12
     panel_w = w - chart_w - 0.12
-    dc.shape("Chart key points panel", panel_x, y, panel_w, panel_h,
+    panel_y = y + (chart_h - panel_h) / 2
+    dc.shape("Chart key points panel", panel_x, panel_y, panel_w, panel_h,
              fill=dc.style.colors["surface"], line=dc.style.colors["line"],
              radius=True)
     row_h = (panel_h - 0.12) / len(points)
     for i, point in enumerate(points, 1):
-        ry = y + 0.06 + (i - 1) * row_h
+        ry = panel_y + 0.06 + (i - 1) * row_h
         number = dc.shape(
             f"Chart point {i} number", panel_x + 0.13,
-            ry + (row_h - 0.34) / 2, 0.34, 0.34,
+            ry + (row_h - 0.42) / 2, 0.42, 0.42,
             kind=MSO_SHAPE.OVAL, fill=dc.style.colors["primary"], line=None,
             text=str(i), size=dc.style.sizes["caption"],
             color=dc.style.colors["on_primary"], bold=True,
@@ -1366,7 +1438,8 @@ def _draw_chart(dc, region, slots, variant):
         label = dc.textbox(
             f"Chart point {i}", panel_x + 0.54, ry + 0.02,
             panel_w - 0.66, row_h - 0.04, point,
-            dc.style.sizes["body"], dc.style.colors["text"])
+            dc.style.sizes["body"], dc.style.colors["text"],
+            anchor=MSO_ANCHOR.MIDDLE)
         _group(dc, [number, label], "Chart", i)
     _finish_frame(dc, y + chart_h)
 
@@ -1690,7 +1763,7 @@ def draw_component(prs, slide, name, spec, tmap, slide_i, variant,
     slots = dict(spec.get("slots") or {})
     slots.pop("title", None)
     validate_component(name, slots, variant, slide_i)
-    component.draw(DrawContext(
-        slide, style, f"slide {slide_i} (component '{name}')"),
-        region, slots, variant)
+    dc = DrawContext(slide, style, f"slide {slide_i} (component '{name}')")
+    component.draw(dc, region, slots, variant)
+    _center_component(dc)
     return variant

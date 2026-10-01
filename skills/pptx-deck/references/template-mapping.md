@@ -27,7 +27,7 @@ template-map.json にない component 名はスキルの図解ライブラリか
   "style": {
     "palette": {"primary": "#0F5B4F"},
     "fonts": {"ea": "Yu Gothic"},
-    "sizes": {"heading": 18}
+    "sizes": {"heading": 20}
   }
 }
 ```

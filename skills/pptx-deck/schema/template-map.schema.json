@@ -53,11 +53,21 @@
         "sizes": {
           "type": "object",
           "properties": {
-            "heading": {"type": "integer", "minimum": 6, "maximum": 72},
-            "body": {"type": "integer", "minimum": 6, "maximum": 72},
-            "caption": {"type": "integer", "minimum": 6, "maximum": 72},
-            "number": {"type": "integer", "minimum": 6, "maximum": 72},
-            "min": {"type": "integer", "minimum": 6, "maximum": 72}
+            "heading": {
+              "type": "integer", "minimum": 11, "maximum": 72, "default": 20
+            },
+            "body": {
+              "type": "integer", "minimum": 11, "maximum": 72, "default": 16
+            },
+            "caption": {
+              "type": "integer", "minimum": 11, "maximum": 72, "default": 13
+            },
+            "number": {
+              "type": "integer", "minimum": 11, "maximum": 72, "default": 48
+            },
+            "min": {
+              "type": "integer", "minimum": 11, "maximum": 72, "default": 11
+            }
           },
           "additionalProperties": false
         }

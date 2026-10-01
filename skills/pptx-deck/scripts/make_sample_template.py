@@ -265,8 +265,10 @@ def _layout_ph_style(layout, idx, sz=None, algn=None, bold=None, color=None):
                     for fill in dr.findall(qn("a:solidFill")):
                         dr.remove(fill)
                     solid = etree.SubElement(dr, qn("a:solidFill"))
-                    scheme = etree.SubElement(solid, qn("a:schemeClr"))
-                    scheme.set("val", color)
+                    tag, value = (("a:srgbClr", color[1:])
+                                  if color.startswith("#")
+                                  else ("a:schemeClr", color))
+                    etree.SubElement(solid, qn(tag)).set("val", value)
             return
     raise RuntimeError(f"layout {layout.name}: ph idx {idx} not found")
 
@@ -620,15 +622,57 @@ def build_minimal_template():
     return prs
 
 
+def _add_layout_accent(layout, name):
+    sp_tree = layout.shapes._spTree
+    shape_ids = [int(shape.get("id"))
+                 for shape in sp_tree.iter(qn("p:cNvPr"))]
+    sp = etree.Element(qn("p:sp"))
+    nv_sp = etree.SubElement(sp, qn("p:nvSpPr"))
+    etree.SubElement(
+        nv_sp, qn("p:cNvPr"), id=str(max(shape_ids, default=1) + 1),
+        name=name)
+    etree.SubElement(nv_sp, qn("p:cNvSpPr"))
+    etree.SubElement(nv_sp, qn("p:nvPr"))
+    sp_pr = etree.SubElement(sp, qn("p:spPr"))
+    xfrm = etree.SubElement(sp_pr, qn("a:xfrm"))
+    etree.SubElement(xfrm, qn("a:off"), x=str(int(Inches(0.9))),
+                     y=str(int(Inches(2.28))))
+    etree.SubElement(xfrm, qn("a:ext"), cx=str(int(Inches(1.2))),
+                     cy=str(int(Inches(0.06))))
+    geometry = etree.SubElement(sp_pr, qn("a:prstGeom"), prst="rect")
+    etree.SubElement(geometry, qn("a:avLst"))
+    solid = etree.SubElement(sp_pr, qn("a:solidFill"))
+    etree.SubElement(solid, qn("a:schemeClr"), val="accent2")
+    line = etree.SubElement(sp_pr, qn("a:ln"))
+    etree.SubElement(line, qn("a:noFill"))
+    tx_body = etree.SubElement(sp, qn("p:txBody"))
+    etree.SubElement(tx_body, qn("a:bodyPr"))
+    etree.SubElement(tx_body, qn("a:lstStyle"))
+    etree.SubElement(tx_body, qn("a:p"))
+    sp_tree.append(sp)
+
+
 def _style_minimal_titles(prs):
-    for name in ("Title Slide", "Section Header", "Title Only",
-                 "Title and Content"):
+    for name in ("Title Only", "Title and Content"):
         layout = find_layout(prs, name)
         _set_ph_geom(layout, 0, x=Inches(0.5), y=Inches(0.4),
                      w=Inches(12.33), h=Inches(1.15))
         _set_ph_anchor(layout, 0, "t")
         _layout_ph_style(layout, 0, sz=2800, algn="l", bold=True,
                          color="dk2")
+    for name in ("Title Slide", "Section Header"):
+        layout = find_layout(prs, name)
+        _set_ph_geom(layout, 0, x=Inches(0.9), y=Inches(2.6),
+                     w=Inches(11.5), h=Inches(0.75))
+        _set_ph_anchor(layout, 0, "t")
+        _layout_ph_style(layout, 0, sz=4000, algn="l", bold=True,
+                         color="dk2")
+        _add_layout_accent(layout, f"{name} Accent")
+    title = find_layout(prs, "Title Slide")
+    _set_ph_geom(title, 1, x=Inches(0.9), y=Inches(3.47),
+                 w=Inches(11.5), h=Inches(0.55))
+    _set_ph_anchor(title, 1, "t")
+    _layout_ph_style(title, 1, sz=1800, algn="l", color="#595F6B")
 
 
 def _widen_content_layouts(prs, names):
