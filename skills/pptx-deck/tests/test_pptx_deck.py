@@ -27,6 +27,7 @@ DECK = ROOT / "examples" / "redmine-migration" / "deck.json"
 
 sys.path.insert(0, str(SCRIPTS))
 from build import absolute_bbox  # noqa: E402
+from common import GENERATED_MARK  # noqa: E402
 
 PY = sys.executable
 
@@ -937,6 +938,40 @@ class TestGroupsLayoutCharts(unittest.TestCase):
                 "-o", str(out))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("fallbacks: 0", r.stdout)
+        prs = Presentation(str(out))
+        generated = []
+        connectors = []
+        for slide in prs.slides:
+            for element in slide._element.xpath(".//p:sp | .//p:cxnSp"):
+                props = element.xpath(
+                    "./p:nvSpPr/p:cNvPr | ./p:nvCxnSpPr/p:cNvPr")
+                if not props:
+                    continue
+                c_nvpr = props[0]
+                if c_nvpr.get("descr") == GENERATED_MARK:
+                    generated.append(c_nvpr.get("name"))
+                    self.assertIsNone(element.find(qn("p:style")))
+                    if c_nvpr.get("name") == "OrgNode":
+                        geometry = element.find(
+                            f"{qn('p:spPr')}/{qn('a:prstGeom')}")
+                        ext = element.find(
+                            f"{qn('p:spPr')}/{qn('a:xfrm')}/"
+                            f"{qn('a:ext')}")
+                        expected = round(
+                            0.06 * int(Inches(1))
+                            / min(int(ext.get("cx")), int(ext.get("cy")))
+                            * 100000)
+                        guide = geometry.find(
+                            f"{qn('a:avLst')}/{qn('a:gd')}[@name='adj']")
+                        self.assertEqual(guide.get("fmla"),
+                                         f"val {expected}")
+                if c_nvpr.get("name") == "OrgConnector":
+                    connectors.append(element)
+        self.assertIn("TimelineStep", generated)
+        self.assertIn("OrgNode", generated)
+        self.assertTrue(connectors)
+        for connector in connectors:
+            self.assertIsNone(connector.find(qn("p:style")))
         rep = self._report(out)
         self.assertEqual(rep["fallbacks"], [])
         self.assertGreater(rep["native"], 0)
