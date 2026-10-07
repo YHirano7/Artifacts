@@ -73,6 +73,36 @@ def is_visible(page, selector):
     return page.eval_on_selector(selector, "e => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length)")
 
 
+SHOWN_JS = """id => {
+  const vis = [...document.querySelectorAll('.chapter')].filter(e => e.getClientRects().length).map(e => e.id);
+  const cover = document.getElementById('top').getClientRects().length > 0;
+  return id === 'top' ? (cover && vis.length === 0) : (!cover && vis.length === 1 && vis[0] === id);
+}"""
+
+
+def wait_shown(page, section_id, timeout=5000):
+    """表紙（top）か章（ch-…）だけが表示された状態になるまで待つ。なれなければ False。"""
+    try:
+        page.wait_for_function(SHOWN_JS, arg=section_id, timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+def wait_true(page, expr, arg=None, timeout=5000):
+    try:
+        page.wait_for_function(expr, arg=arg, timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+def goto_section(page, url, section_id):
+    """同じ文書内のハッシュ移動も含め、URL を開いて表示が切り替わるまで待つ。"""
+    page.goto(url)
+    return wait_shown(page, section_id)
+
+
 def no_hscroll(page):
     w = page.evaluate("() => [document.documentElement.scrollWidth, window.innerWidth]")
     return (w[0] <= w[1], f"scrollWidth={w[0]} > {w[1]}" if w[0] > w[1] else "")
@@ -86,15 +116,12 @@ def run_js_suite(rep, browser, base, label, slugs):
     page.goto(base)
     first, second, last = slugs[0], slugs[1] if len(slugs) > 1 else slugs[0], slugs[-1]
 
-    rep.check(f"[{label}] 表紙だけが表示され、章は隠れている",
-              lambda: is_visible(page, "#top") and visible_chapters(page) == [])
+    rep.check(f"[{label}] 表紙だけが表示され、章は隠れている", lambda: wait_shown(page, "top"))
 
     def open_first():
         page.click(".book-actions .btn-primary")
-        page.wait_for_function(f"location.hash === '#ch-{first}'")
-        vis = visible_chapters(page)
-        ok = vis == [f"ch-{first}"] and not is_visible(page, "#top")
-        return ok, "" if ok else f"visible={vis}"
+        ok = wait_shown(page, f"ch-{first}")
+        return ok, "" if ok else f"visible={visible_chapters(page)}"
     rep.check(f"[{label}]「本を読む」で1章目だけが表示される", open_first)
 
     def title_and_label():
@@ -108,72 +135,65 @@ def run_js_suite(rep, browser, base, label, slugs):
         if second == first:
             return True, "章が1つだけなので省略"
         page.mouse.wheel(0, 600)
-        page.wait_for_timeout(400)  # スクロール位置の保存を待つ
+        wait_true(page, "() => scrollY > 0")
         y_before = page.evaluate("scrollY")
         page.click(f'.chapter-list a[href="#ch-{second}"]')
-        page.wait_for_function(f"location.hash === '#ch-{second}'")
-        top = page.evaluate("scrollY")
-        if visible_chapters(page) != [f"ch-{second}"] or top != 0:
-            return False, f"2章目へ移動できない（scrollY={top}）"
+        if not wait_shown(page, f"ch-{second}") or not wait_true(page, "() => scrollY === 0"):
+            return False, f"2章目へ移動できない（scrollY={page.evaluate('scrollY')}）"
         page.go_back()
-        page.wait_for_function(f"location.hash === '#ch-{first}'")
-        page.wait_for_timeout(100)
+        shown = wait_shown(page, f"ch-{first}")
+        restored = wait_true(page, "y => Math.abs(scrollY - y) < 5", arg=y_before)
         y_after = page.evaluate("scrollY")
-        ok = visible_chapters(page) == [f"ch-{first}"] and abs(y_after - y_before) < 5
+        ok = shown and restored
         return ok, "" if ok else f"戻ったときの位置 {y_after}（元は {y_before}）"
     rep.check(f"[{label}] 章を移動し「戻る」で元の章と読んでいた位置に戻る", to_second_and_back)
 
     def forward_and_cover():
         if second != first:
             page.go_forward()
-            page.wait_for_function(f"location.hash === '#ch-{second}'")
-        page.goto(base + "#top")
-        page.wait_for_timeout(100)
-        return is_visible(page, "#top") and visible_chapters(page) == []
+            if not wait_shown(page, f"ch-{second}"):
+                return False, "「進む」で2章目に戻らない"
+        return goto_section(page, base + "#top", "top"), "#top で表紙が出ない"
     rep.check(f"[{label}]「進む」と #top（表紙）への移動", forward_and_cover)
 
     def rapid_clicks():
-        page.goto(base + f"#ch-{first}")
+        goto_section(page, base + f"#ch-{first}", f"ch-{first}")
         for s in slugs * 2:
             page.evaluate(f"document.querySelector('.chapter-list a[href=\"#ch-{s}\"]').click()")
-        page.wait_for_timeout(150)
-        vis = visible_chapters(page)
-        return (vis == [f"ch-{last}"] and page.evaluate("location.hash") == f"#ch-{last}", f"visible={vis}")
+        ok = wait_shown(page, f"ch-{last}") and page.evaluate("location.hash") == f"#ch-{last}"
+        return ok, f"visible={visible_chapters(page)}"
     rep.check(f"[{label}] 章リンクを連打しても最後に選んだ章が出る", rapid_clicks)
 
     def deep_link():
         hid = page.eval_on_selector(f"#ch-{second} .chapter-body h2[id]", "e => e.id")
-        page.goto(base + "#top")
-        page.goto(base + f"#{hid}")
-        page.wait_for_timeout(150)
+        goto_section(page, base + "#top", "top")
+        shown = goto_section(page, base + f"#{hid}", f"ch-{second}")
+        placed = wait_true(page, "id => { const t = document.getElementById(id).getBoundingClientRect().top; "
+                                 "return t >= 0 && t < 200; }", arg=hid)
         top = page.eval_on_selector(f"#{hid}", "e => e.getBoundingClientRect().top")
-        ok = visible_chapters(page) == [f"ch-{second}"] and 0 <= top < 200
+        ok = shown and placed
         return ok, "" if ok else f"見出しの位置 top={top}"
     rep.check(f"[{label}] 見出しアンカーを直接開くと、その章のその見出しが出る", deep_link)
 
     def reload_keeps():
         page.reload()
-        page.wait_for_timeout(150)
-        return visible_chapters(page) == [f"ch-{second}"]
+        return wait_shown(page, f"ch-{second}")
     rep.check(f"[{label}] 再読み込みしても同じ章が表示される", reload_keeps)
 
     def keys():
-        page.goto(base + f"#ch-{first}")
+        goto_section(page, base + f"#ch-{first}", f"ch-{first}")
         page.keyboard.press("ArrowLeft")
-        page.wait_for_timeout(100)
-        ok1 = is_visible(page, "#top")
-        page.goto(base + f"#ch-{first}")
+        ok1 = wait_shown(page, "top")
+        goto_section(page, base + f"#ch-{first}", f"ch-{first}")
+        ok2 = True
         if second != first:
             page.keyboard.press("ArrowRight")
-            page.wait_for_timeout(100)
-            ok2 = visible_chapters(page) == [f"ch-{second}"]
-        else:
-            ok2 = True
+            ok2 = wait_shown(page, f"ch-{second}")
         return ok1 and ok2, "" if ok1 and ok2 else f"←={ok1} →={ok2}"
     rep.check(f"[{label}] ←／→キーで前後の章・表紙に移動する", keys)
 
     def toc_and_copy():
-        page.goto(base + f"#ch-{first}")
+        goto_section(page, base + f"#ch-{first}", f"ch-{first}")
         cards = page.eval_on_selector_all(".toc-card", "els => els.filter(e => e.offsetParent).length")
         has_copy = page.locator(f"#ch-{first} .copy-btn").count() == page.locator(f"#ch-{first} .code-block").count()
         return cards == 1 and has_copy, f"表示中の目次カード={cards}"
@@ -182,7 +202,7 @@ def run_js_suite(rep, browser, base, label, slugs):
     def images_ok():
         bad = []
         for s in slugs:
-            page.goto(base + f"#ch-{s}")
+            goto_section(page, base + f"#ch-{s}", f"ch-{s}")
             bad += page.eval_on_selector_all(f"#ch-{s} img", """async els => {
                 const bad = [];
                 for (const i of els) {
@@ -221,9 +241,9 @@ def run_nojs_suite(rep, browser, base, slugs):
     def jump():
         target = slugs[-1]
         page.click(f'.chapter-list a[href="#ch-{target}"]')
-        page.wait_for_timeout(100)
-        top = page.eval_on_selector(f"#ch-{target}", "e => e.getBoundingClientRect().top")
-        return 0 <= top < 120, f"top={top}"
+        ok = wait_true(page, "id => { const t = document.getElementById(id).getBoundingClientRect().top; "
+                             "return t >= 0 && t < 120; }", arg=f"ch-{target}")
+        return ok, f"top={page.eval_on_selector(f'#ch-{target}', 'e => e.getBoundingClientRect().top')}"
     rep.check("[JS無効] サイドバーのリンクで章の位置にジャンプする", jump)
 
     def details_toggle():
@@ -240,12 +260,12 @@ def run_nojs_suite(rep, browser, base, slugs):
     rep.check("[JS無効・375px] 横にはみ出さない", lambda: no_hscroll(page))
 
     def menu_link():
-        page.click(".menu-btn") if is_visible(page, ".menu-btn") else None
-        page.wait_for_timeout(100)
+        page.click(".menu-btn")
         href = page.get_attribute(".menu-btn", "href")
-        top = page.eval_on_selector(href, "e => e.getBoundingClientRect().top")
+        placed = wait_true(page, "sel => { const t = document.querySelector(sel).getBoundingClientRect().top; "
+                                 "return t >= 0 && t < 120; }", arg=href)
         links = page.eval_on_selector_all(href + ' a[href^="#ch-"]', "els => els.length")
-        return 0 <= top < 120 and links == len(slugs), f"{href} top={top} links={links}"
+        return placed and links == len(slugs), f"{href} links={links}"
     rep.check("[JS無効・375px] メニューボタンでチャプター一覧に移動する", menu_link)
     page.close()
 
@@ -253,28 +273,27 @@ def run_nojs_suite(rep, browser, base, slugs):
 def run_mobile_js_suite(rep, browser, base, slugs):
     page = browser.new_page(viewport={"width": 375, "height": 800})
     page.goto(base + f"#ch-{slugs[0]}")
-    page.wait_for_timeout(100)
+    wait_shown(page, f"ch-{slugs[0]}")
     rep.check("[JS有効・375px] 1列表示で横にはみ出さない", lambda: no_hscroll(page))
 
     def drawer():
         closed = page.eval_on_selector("#sidebar", "e => e.getBoundingClientRect().right <= 0")
         page.click(".menu-btn")
-        page.wait_for_timeout(300)
-        opened = page.eval_on_selector("#sidebar", "e => e.getBoundingClientRect().left >= 0")
+        opened = wait_true(page, "() => document.getElementById('sidebar').getBoundingClientRect().left >= 0")
         expanded = page.get_attribute(".menu-btn", "aria-expanded")
         target = slugs[-1]
         page.click(f'.chapter-list a[href="#ch-{target}"]')
-        page.wait_for_timeout(300)
-        reclosed = not page.evaluate("document.body.classList.contains('nav-open')")
-        ok = closed and opened and expanded == "true" and reclosed and visible_chapters(page) == [f"ch-{target}"]
+        reclosed = wait_true(page, "() => !document.body.classList.contains('nav-open')")
+        ok = closed and opened and expanded == "true" and reclosed and wait_shown(page, f"ch-{target}")
         return ok, f"初期={closed} 開く={opened} aria={expanded} 閉じる={reclosed}"
     rep.check("[JS有効・375px] メニューで一覧を開き、章を選ぶと閉じる", drawer)
 
     def escape_closes():
         page.click(".menu-btn")
-        page.wait_for_timeout(100)
+        if not wait_true(page, "() => document.body.classList.contains('nav-open')"):
+            return False, "メニューが開かない"
         page.keyboard.press("Escape")
-        return not page.evaluate("document.body.classList.contains('nav-open')")
+        return wait_true(page, "() => !document.body.classList.contains('nav-open')"), "閉じない"
     rep.check("[JS有効・375px] Esc でメニューが閉じる", escape_closes)
     page.close()
 
@@ -286,9 +305,11 @@ def run_fallback_suite(rep, browser, base, slugs):
                          "Object.defineProperty(window, 'IntersectionObserver', {value: undefined});"
                          "Element.prototype.closest = function () { throw new Error('broken'); };")
     page.goto(base + f"#ch-{slugs[0]}")
-    page.wait_for_timeout(150)
+    page.wait_for_load_state("load")
     rep.check("[JS失敗時] 例外が起きても全章を縦に並べた表示に戻る",
-              lambda: (visible_chapters(page) == [f"ch-{s}" for s in slugs],
+              lambda: (wait_true(page, "n => !document.documentElement.classList.contains('js') && "
+                                       "[...document.querySelectorAll('.chapter')]"
+                                       ".filter(e => e.getClientRects().length).length === n", arg=len(slugs)),
                        f"visible={visible_chapters(page)}"))
     page.close()
 
