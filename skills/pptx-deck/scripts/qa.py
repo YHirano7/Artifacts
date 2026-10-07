@@ -492,7 +492,8 @@ def _check_deck_consistency(prs, deck, tmap, err):
             err(None, None, f"story.{k} is empty")
     # content slides: message + notes
     for i, s in enumerate(deck["slides"], start=1):
-        source, comp = resolve_component(s["component"], tmap)
+        source, comp = resolve_component(s["component"], tmap,
+                                         s.get("prefer"))
         if source == "library" or comp.get("kind") == "content":
             if not s.get("message"):
                 err(i, None, "content slide missing 'message'")
@@ -506,7 +507,8 @@ def _check_deck_consistency(prs, deck, tmap, err):
     items = deck["slides"][toc_slide]["slots"].get("items", [])
     structural = []
     for i, slide_spec in enumerate(deck["slides"]):
-        source, component = resolve_component(slide_spec["component"], tmap)
+        source, component = resolve_component(
+            slide_spec["component"], tmap, slide_spec.get("prefer"))
         if (source == "template" and component.get("kind") == "structural"
                 and i != toc_slide):
             structural.append((i, slide_spec))
@@ -527,7 +529,8 @@ def _check_text_only_slides(deck, tmap, warn):
     run = []
     long_runs = []
     for i, spec in enumerate(deck["slides"], start=1):
-        source, component = resolve_component(spec["component"], tmap)
+        source, component = resolve_component(spec["component"], tmap,
+                                              spec.get("prefer"))
         is_content = (source == "library" or
                       component.get("kind") == "content")
         is_text = (source == "template" and is_content and
@@ -572,11 +575,17 @@ def main(argv=None):
         if args.map_path else None
     fallbacks = []
     library = []
+    text_only = []
+    compat = []
+    target = "powerpoint"
     if args.build_report:
         brep = json.loads(
             Path(args.build_report).read_text(encoding="utf-8"))
         fallbacks = brep.get("fallbacks", [])
         library = brep.get("library", [])
+        text_only = brep.get("text_only", [])
+        compat = brep.get("compat", [])
+        target = brep.get("target", "powerpoint")
 
     errors, warnings = check_deck_qa(
         args.pptx, deck, tmap, args.render_dir, args.engine)
@@ -586,8 +595,15 @@ def main(argv=None):
             "message": f"fallback in slot '{f.get('slot')}': "
                        f"{f.get('reason')} -> {f.get('substitute')} "
                        f"[{f.get('style_source')}]"})
+    for item in text_only:
+        warnings.append({"slide": item["slide"], "shape": None,
+                         "message": f"text-only slide kept: {item['reason']}"})
+    for item in compat:
+        warnings.append({"slide": item.get("slide"), "shape": None,
+                         "message": f"[{target}] {item['message']}"})
     report = {"file": args.pptx, "errors": errors, "warnings": warnings,
-              "fallbacks": fallbacks, "library": library}
+              "fallbacks": fallbacks, "library": library,
+              "text_only": text_only, "target": target, "compat": compat}
     if args.report_path:
         Path(args.report_path).write_text(
             json.dumps(report, ensure_ascii=False, indent=2),
@@ -611,8 +627,18 @@ def main(argv=None):
         print("テンプレに準拠できなかった箇所: なし")
     print(f"スキルの部品で描いた箇所: {len(library)}件")
     for item in library:
+        forced = "（テンプレより優先を指定）" if item.get("forced") else ""
         print(f"  - スライド{item['slide']}: {item['component']} / "
-              f"{item['variant']}")
+              f"{item['variant']}{forced}")
+    print(f"文章だけのスライド: {len(text_only)}件"
+          if text_only else "文章だけのスライド: なし")
+    for item in text_only:
+        print(f"  - スライド{item['slide']}: {item['reason']}")
+    if target != "powerpoint":
+        print(f"出力先 {target} で劣化する箇所: {len(compat)}件")
+        for item in compat:
+            loc = f"スライド{item['slide']}" if item.get("slide") else "全体"
+            print(f"  - {loc}: {item['message']}")
     return 1 if errors else 0
 
 

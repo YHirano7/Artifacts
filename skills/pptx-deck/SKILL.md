@@ -1,6 +1,6 @@
 ---
 name: pptx-deck
-description: ストーリー設計→deck.json→組織のPowerPointテンプレート(.pptx)への流し込み→QAまでを一気通貫で行うワークフロー。スライド・プレゼン資料・pptxの作成や、社内テンプレートに沿ったデッキ生成に使う。テンプレの部品と編集可能なカード・KPI・工程・比較・マトリクス・ロードマップ・グラフ等の図解ライブラリを組み合わせる。
+description: ストーリー設計→deck.json→組織のPowerPoint/Googleスライドのテンプレート(.pptx)への流し込み→QAまでを一気通貫で行うワークフロー。スライド・プレゼン資料・pptx・Googleスライドの作成や、社内テンプレートに沿ったデッキ生成に使う。テンプレの部品を優先し、足りない図解は編集可能なカード・KPI・工程・比較・表・評価表・RACI・ロジックツリー・スイムレーン・ハブ・タイムライン・ロードマップ・アクションプラン・グラフ等のライブラリで描く。文章だけのスライドは止める。
 ---
 
 # 組織テンプレートへのプレゼン流し込み（ストーリー → deck.json → pptx → QA）
@@ -8,6 +8,24 @@ description: ストーリー設計→deck.json→組織のPowerPointテンプレ
 「まず話の流れを設計し、それを部品化して組織テンプレに写す」ための手順。テンプレのスタイルはそのまま活きるので、見た目の調整ではなく内容の設計に集中する。
 
 組織テンプレが無いときは `templates/sample-org/` を使う。組織テンプレを置く場所は `templates/<org>/`（template.pptx + template-map.json を1組にする）。`templates/minimal-org/` は部品ギャラリーの確認用。
+
+## 導入先による分岐
+
+このスキルは導入先の環境で次の2点が分岐する前提で作られている。どちらの場合も生成物は `.pptx` で、手順は同じ。
+
+| 導入先 | テンプレート | build | 見た目の確認 |
+|---|---|---|---|
+| Office（PowerPoint）| 組織の .pptx/.potx を `templates/<org>/` に置く | `--target powerpoint`（既定） | `--engine powerpoint`。最終表示と一致する |
+| Googleスライド | Googleスライドから .pptx で書き出して置く（[template-mapping.md](references/template-mapping.md) の「Googleスライドのテンプレート」） | `--target google_slides` か map の `output.target` | `--engine libreoffice` で近似確認 → Driveにアップロードし「Googleスライドで開く」で最終確認 |
+
+`--target google_slides` は、取り込みで劣化する箇所（グラフは静止画になる、Googleスライドに無いフォントは置換される）を build-report の `compat` に出し、qa が一覧する。PowerPointもGoogleスライドも無い環境では LibreOffice で描画確認まで行い、最終確認を本人に依頼する。
+
+## 部品の選び方（テンプレ優先・文章だけは止める）
+
+1. template-map.json にある部品を最優先で使う（テンプレの意匠がそのまま活きる）
+2. 無い図解はライブラリから、`references/story.md` の「内容の型 → component」の表で選ぶ。同名ならテンプレが優先され、テンプレの部品で表現できない時だけスライドに `"prefer": "library"` を付ける
+3. ライブラリにも無い意匠は「テンプレに部品が無いとき」に従って見本スライドを追加する
+4. **文章だけのスライド（slotがtext/listだけのテンプレ部品）は build がエラーで止める**。文章で見せる理由がある場合だけ `text_only_reason` を書く。理由は build-report と qa の報告に全件残る。`message` は既定で2枚まで
 
 ## 工程
 
@@ -22,7 +40,7 @@ Windows では PowerShell 経由で PowerPoint COM を先に確認し、使え�
 - **none**: 構造buildとQAのみでpreviewは無い。視覚確認が済んでいないことを伝え、PowerPointでの確認を依頼する。
 
 ### 2. ブリーフを作る
-目的・聴衆・欲しい行動・前提（数値の根拠を含む）を短いMarkdownにまとめる。例は `examples/redmine-migration/brief.md`。
+目的・聴衆・欲しい行動・前提（数値の根拠を含む）を短いMarkdownにまとめる。例は `examples/redmine-migration/brief.md`。依頼者が仮説を持っている場合は、業界動向や一次情報を調べて「支持する根拠」「盲点（反証）」「仮説に無い論点」に分けて書き、修正した形でストーリーに入れる（例 `examples/aidd-copilot/brief.md`）。出典はブリーフに残す。
 
 ### 3. ストーリーを設計する → 本人承認（1回目）
 `references/story.md` の受入基準に沿ってスライド構成を起案し、**本文作成の前に本人の承認を得る**。ここでストーリーを確定させると後戻りが最小になる。
@@ -58,7 +76,7 @@ python scripts/qa.py out.pptx --deck deck.json --map template-map.json --render 
 - スライド7「移行方式」の表: 見本がExcel埋め込みのため、スライド3の表の配色で描き直しました
 ```
 
-0件なら `テンプレに準拠できなかった箇所: なし` と書く。
+0件なら `テンプレに準拠できなかった箇所: なし` と書く。文章だけのスライドと、Googleスライド向けの劣化点（compat）も同じ書式で全件書く。
 
 ## コマンド一覧
 
@@ -66,7 +84,7 @@ python scripts/qa.py out.pptx --deck deck.json --map template-map.json --render 
 |---|---|
 | `scripts/engine.py detect|render|pdf ...` | PowerPoint / LibreOffice の判定・レンダリング |
 | `scripts/inventory.py TEMPLATE.pptx [--json OUT] [--thumbs DIR] [--engine E]` | テンプレの構造・テーマ棚卸し、サムネイル生成 |
-| `scripts/build.py --deck D --map M [--template T] -o OUT.pptx [--strict] [--report R]` | deck.json をテンプレに流し込んでビルド。補完は `OUT.pptx.build-report.json` に記録 |
+| `scripts/build.py --deck D --map M [--template T] -o OUT.pptx [--strict] [--report R] [--target powerpoint|google_slides]` | deck.json をテンプレに流し込んでビルド。補完・ライブラリ利用・文章だけのスライド・出力先での劣化を `OUT.pptx.build-report.json` に記録 |
 | `scripts/qa.py OUT.pptx [--deck D --map M] [--render DIR] [--report R] [--build-report B] [--engine E]` | QA。エラー時は終了コード1。`--build-report` の補完は警告として出す |
 | `scripts/make_sample_template.py [--variant sample|minimal] [-o OUT.pptx]` | sample-org または minimal-org テンプレの生成 |
 
@@ -74,7 +92,7 @@ python scripts/qa.py out.pptx --deck deck.json --map template-map.json --render 
 
 ## テンプレに部品が無いとき
 
-テンプレに図解部品が無い場合はまず [components.md](references/components.md) のライブラリから選ぶ。テンプレ独自の意匠が必要な場合だけ、テーマ色・フォント・既存図形を使った見本スライドを作り、図形名を付けて map に追加する。完成例は `examples/component-gallery/`。
+テンプレに図解部品が無い場合はまず [components.md](references/components.md) のライブラリから選ぶ。テンプレ独自の意匠が必要な場合だけ、テーマ色・フォント・既存図形を使った見本スライドを作り、図形名を付けて map に追加する。全部品の見本は `examples/component-gallery/`、課題→アクションまでを部品でつないだ完成例は `examples/aidd-copilot/`。
 
 ## モデル別の運用
 
@@ -91,6 +109,9 @@ python scripts/qa.py out.pptx --deck deck.json --map template-map.json --render 
 - [ ] preview PNGを全ページ自分で見て、はみ出し・重なり・文字化け・不自然な空白がないか
 - [ ] 目次とセクション区切りの表題が一致しているか（qaが検査する）
 - [ ] コンテンツスライドすべてにmessageとnotesがあるか
+- [ ] 文章だけのスライドが無いか。あれば `text_only_reason` が妥当で、最終報告に書いたか
+- [ ] 課題のスライドが、担当・期限つきのアクションにつながっているか
+- [ ] Googleスライド向けなら、compatの劣化点を最終報告に書いたか
 - [ ] テンプレ由来の見本文字（サンプル・〇〇等）が残っていないか（qaが検査する）
 - [ ] 補完があれば build-report の内容を最終報告に全件記載したか（`テンプレに準拠できなかった箇所（N件）:` の書式）
 - [ ] 完成後に本人承認を取ったか

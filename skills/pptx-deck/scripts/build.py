@@ -23,8 +23,10 @@ from common import (CHART_TYPES, FALLBACK_MARK, GENERATED_MARK, BuildError,
                     chart_data as _chart_data, fail,
                     finish_chart as _finish_chart,
                     mark_el as _mark_el)
+from targets import TARGETS, compat_findings
 from components import (draw_component, resolve_canvas,
-                        resolve_component, validate_component)
+                        resolve_component, validate_component,
+                        is_text_only)
 
 A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -160,7 +162,8 @@ def validate_deck(deck, tmap):
     check_schema(tmap, "template-map.schema.json", "template-map.json")
     for i, spec in enumerate(deck["slides"], start=1):
         comp_name = spec["component"]
-        source, comp = resolve_component(comp_name, tmap)
+        source, comp = resolve_component(comp_name, tmap,
+                                         spec.get("prefer"))
         if source == "library":
             validate_component(
                 comp_name, {k: v for k, v in spec.get("slots", {}).items()
@@ -178,6 +181,50 @@ def validate_deck(deck, tmap):
                      f"'message' (it is the slide's action title)")
             if not spec.get("notes"):
                 fail(f"slide {i}: content slide requires speaker 'notes'")
+    return check_visual_policy(deck, tmap)
+
+
+def check_visual_policy(deck, tmap):
+    """Keep text-only slides from becoming the deliverable.
+
+    A content slide whose template component only has text/list slots is
+    text-only. Under policy.text_only == "error" (default) it needs an
+    explicit ``text_only_reason``; the reason is recorded in the build report
+    so the reviewer sees every exception.
+    """
+    policy = tmap.get("policy", {})
+    mode = policy.get("text_only", "error")
+    max_message = policy.get("max_message_slides", 2)
+    records = []
+    messages = []
+    for i, spec in enumerate(deck["slides"], start=1):
+        source, comp = resolve_component(spec["component"], tmap,
+                                         spec.get("prefer"))
+        text_only = is_text_only(source, comp)
+        reason = spec.get("text_only_reason")
+        if reason and not text_only:
+            fail(f"slide {i}: text_only_reason is only for text-only "
+                 f"components; '{spec['component']}' is not text-only")
+        if source == "library" and spec["component"] == "message":
+            messages.append(i)
+        if not text_only:
+            continue
+        if reason:
+            records.append({"slide": i, "component": spec["component"],
+                            "reason": reason})
+        elif mode == "error":
+            fail(f"slide {i}: '{spec['component']}' is a text-only slide. "
+                 "Pick a diagram from the template map or the library "
+                 "(cards/process/comparison/table/tree/action_plan ...), "
+                 "or set text_only_reason to keep it as text")
+        elif mode == "warn":
+            records.append({"slide": i, "component": spec["component"],
+                            "reason": "(no reason; policy.text_only=warn)"})
+    if mode == "error" and len(messages) > max_message:
+        fail(f"slides {messages}: {len(messages)} 'message' slides exceed "
+             f"policy.max_message_slides={max_message}; show the support "
+             "as a diagram instead")
+    return records
 
 
 # ---------- shape tree / geometry helpers ----------
@@ -1480,10 +1527,11 @@ def _fill_sample_slots(ctx, slide, comp, slots, where):
 
 
 def build(deck_path, map_path, template_path, out_path, strict=False,
-          report_path=None):
+          report_path=None, target=None):
     deck = load_json(deck_path)
     tmap = load_json(map_path)
-    validate_deck(deck, tmap)
+    text_only = validate_deck(deck, tmap)
+    target = target or tmap.get("output", {}).get("target", "powerpoint")
     if template_path is None:
         template_path = Path(map_path).resolve().parent / tmap["template"]
     prs = Presentation(str(template_path))
@@ -1491,7 +1539,8 @@ def build(deck_path, map_path, template_path, out_path, strict=False,
     ctx = BuildCtx(prs, n_original)
     library = []
     for i, spec in enumerate(deck["slides"], start=1):
-        source, comp = resolve_component(spec["component"], tmap)
+        source, comp = resolve_component(spec["component"], tmap,
+                                         spec.get("prefer"))
         where = f"slide {i} (component '{spec['component']}')"
         ctx.slide_i, ctx.component = i, spec["component"]
         if source == "library":
@@ -1504,7 +1553,8 @@ def build(deck_path, map_path, template_path, out_path, strict=False,
             remove_unfilled_placeholders(slide)
             inherit_placeholder_geometry(slide)
             library.append({"slide": i, "component": spec["component"],
-                            "variant": variant})
+                            "variant": variant,
+                            "forced": spec.get("prefer") == "library"})
             if spec.get("notes"):
                 slide.notes_slide.notes_text_frame.text = spec["notes"]
             renumber_shape_ids(slide)
@@ -1529,7 +1579,9 @@ def build(deck_path, map_path, template_path, out_path, strict=False,
             slide.notes_slide.notes_text_frame.text = spec["notes"]
         renumber_shape_ids(slide)
     report = {"fallbacks": ctx.fallbacks, "native": ctx.native,
-              "library": library}
+              "library": library, "text_only": text_only,
+              "target": target,
+              "compat": compat_findings(prs, n_original, target)}
     rp = report_path or (str(out_path) + ".build-report.json")
     Path(rp).write_text(json.dumps(report, ensure_ascii=False, indent=2),
                         encoding="utf-8")
@@ -1560,10 +1612,14 @@ def main(argv=None):
                     help="fail (exit 2) if any fallback was needed")
     ap.add_argument("--report", dest="report_path", default=None,
                     help="build report path (default: OUT.build-report.json)")
+    ap.add_argument("--target", choices=TARGETS, default=None,
+                    help="where the deck will be opened (default: "
+                         "map output.target, else powerpoint)")
     args = ap.parse_args(argv)
     try:
         out = build(args.deck, args.map_path, args.template, args.output,
-                    strict=args.strict, report_path=args.report_path)
+                    strict=args.strict, report_path=args.report_path,
+                    target=args.target)
     except BuildError as e:
         print(f"build error: {e}", file=sys.stderr)
         return 2
@@ -1582,6 +1638,12 @@ def main(argv=None):
         print(f"built {out} : fallbacks: 0")
     if report["library"]:
         print(f"library components: {len(report['library'])}")
+    for item in report["text_only"]:
+        print(f"  text-only slide {item['slide']} ({item['component']}): "
+              f"{item['reason']}")
+    for item in report["compat"]:
+        loc = f"slide {item['slide']}" if item.get("slide") else "deck"
+        print(f"  compat[{report['target']}] {loc}: {item['message']}")
     return 0
 
 

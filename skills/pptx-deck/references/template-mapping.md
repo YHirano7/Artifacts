@@ -86,6 +86,12 @@ paletteとfontを省略した場合は、テンプレートのテーマ色・フ
 - `placeholder_markers`: テンプレの見本文字（「〇〇」「サンプル」等）。QAで残存を検査する。
 - `notes_instructions`: 見本スライドのノート欄に書かれた指示を写す（inventoryの出力から拾う）。ストーリー設計時の参考情報。
 - `slide_size`: [幅, 高さ]（インチ）。inventoryの値を写す。
+- `policy`: `{"text_only": "error"|"warn"|"allow", "max_message_slides": 2}`。文章だけのスライドの扱い（[components.md](components.md) の「文章だけのスライドを成果物にしない」）。既定は `error`。
+- `output`: `{"target": "powerpoint"|"google_slides"}`。このテンプレで作るデッキを開く先。build の `--target` で上書きできる。
+
+## Googleスライドのテンプレート
+
+Googleスライドの組織テンプレも同じ方式で扱う。Googleスライドで「ファイル → ダウンロード → Microsoft PowerPoint（.pptx）」で書き出し、`templates/<org>/template.pptx` に置いて inventory → map を作る。map には `"output": {"target": "google_slides"}` を書く。書き出したpptxはGoogleスライド上で使っていたフォントを持つため、取り込み時のフォント置換は起きにくい。実際に置換が起きるかは build-report の `compat` で確認する。
 
 ## 落とし穴
 
