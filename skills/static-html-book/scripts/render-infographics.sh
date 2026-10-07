@@ -4,6 +4,8 @@
 # 本のディレクトリで実行する（infographics/ と src/images/ を CWD から見る）。
 set -euo pipefail
 CHROME="${CHROME:-chrome}"
+# コンテナや root で動かすときは CHROME_FLAGS="--no-sandbox" のように追加の引数を渡せる
+read -r -a extra_flags <<< "${CHROME_FLAGS:-}"
 to_native() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 profile="$(mktemp -d)"
 trap 'rm -rf "$profile"' EXIT
@@ -14,10 +16,11 @@ for f in "${targets[@]}"; do
   src="$(to_native "$(cd "$(dirname "$f")" && pwd)/$(basename "$f")")"
   out="$(to_native "$(pwd)/src/images/${name}.png")"
   # ウィンドウ枠の分だけビューポートが小さくなるため、大きめに撮って左上を切り出す
-  "$CHROME" --headless=new --disable-gpu --hide-scrollbars \
+  "$CHROME" --headless=new --disable-gpu --hide-scrollbars ${extra_flags[@]+"${extra_flags[@]}"} \
     --user-data-dir="$(to_native "$profile")" \
     --force-device-scale-factor=2 --window-size=1400,900 \
-    --screenshot="$out" "file:///${src#/}" >/dev/null 2>&1
+    --screenshot="$out" "file:///${src#/}" >/dev/null 2>&1 \
+    || { echo "render failed: $f（CHROME と CHROME_FLAGS を確認）" >&2; exit 1; }
   python - "$out" <<'PY'
 import sys
 from PIL import Image

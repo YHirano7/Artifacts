@@ -1,20 +1,30 @@
 ---
 name: static-html-book
-description: Zennの「本」に似たレイアウトの技術書を、外部サービスに依存しない静的HTMLとして作るワークフロー。章立ての設計、Markdown執筆、各章の図解PNG、ビルド、リンク・構造の検査、公開前の個人情報チェック、ブラウザでの確認までを扱う。file:// で直接開いても、HTTPで配信しても、JavaScriptが無効でも読める。学習用ドキュメント・社内向け入門書・ハンズオン教材を、公開リポジトリやアーティファクトとして配布したいときに使う。
+description: Zenn の「本」に似たレイアウト（チャプター一覧・本文カード・目次の3列）の技術書・ドキュメントを、index.html 1枚と images/ だけの静的HTMLとして作るワークフロー。Zenn のサービスや zenn-cli は使わない。JavaScript が有効なら章を1つずつ切り替えて表示し、無効なら全章を縦に並べた1ページで読める。file:// で開いても HTTP で配信しても動く。章立ての設計、Markdown（:::message・:::details など Zenn 風の記法）での執筆、図解PNG、ビルド、構成・リンク検査、公開前の個人情報チェック、ブラウザでの自動確認までを扱う。「Zenn風のドキュメント」「Zenn本みたいな技術書」「HTMLの入門書・社内向け教材・ハンズオン資料を配布したい」「サーバーなしで読めるドキュメント」と言われたときに使う。
 ---
 
-# 静的HTMLの技術書を作る（Zenn本風レイアウト）
+# Zenn本風の静的HTMLドキュメントを作る
 
-Markdown で書いた章を、Zenn の本に似た3列レイアウトの HTML にするための手順。Zenn のサービスやアカウントは使わない。出来上がった `site/` をそのまま配布でき、サーバーなしでも読める。
+Markdown で書いた章を、Zenn の本に似たレイアウトの HTML にする。レイアウトを寄せるだけで、Zenn のサービス・アカウント・zenn-cli・Zenn のリポジトリ構成（`books/<slug>/config.yaml` など）は使わない。
 
-## 仕上がりの要件
+## 出力の約束
 
-- 出力は2つの形式から選べる
-  - `site`：章ごとのHTML。`site/index.html` を `file://` で開いても、HTTP で配信しても読める
-  - `single`：1つの `index.html`（CSS・JavaScript 埋め込み）と `images/` だけ。フォルダ1つで配布できる。JavaScript が有効なら `file://` でも再読み込みなしで章を切り替えられ、無効なら全章が1ページに縦に並ぶ
-- JavaScript が無効でも、通常のリンクで全章を行き来できる。目次・確認問題の解答・モバイルのメニューは `details` と checkbox で開閉する
-- JavaScript が有効なら、ページを再読み込みせずに章を切り替える（`site` は HTTP 配信時のみ、`file://` では通常のリンク遷移に戻る。`single` は `file://` でも使える）。目次の現在位置ハイライト、読書進捗、コードのコピー、←／→キーでの章移動も使える
-- 外部の CDN・画像・Web フォントは使わない。リンクはすべて相対パスにする
+出来上がる `site/` は、次の2つだけでできている。
+
+```text
+site/
+├── index.html   表紙＋全章（CSS・JavaScript を埋め込み済み）
+└── images/      本文から参照している画像だけ
+```
+
+| 読者の環境 | 表示 |
+| --- | --- |
+| JavaScript 有効（`file://`・HTTP とも） | 表紙（`#top`）か1章だけを表示し、`#ch-<slug>` のハッシュで再読み込みなしに切り替える。戻る／進む、読んでいた位置の復元、目次の現在位置、読書進捗、コードのコピー、←／→キーが使える |
+| JavaScript 無効・JS の途中で例外が起きた・印刷 | 表紙のあとに全章を縦に並べた1ページ。サイドバーと「このチャプターの目次」のリンクはページ内ジャンプになる。折りたたみは `details` で開閉する |
+| 375px 幅 | 1列。JS 有効ならメニューからドロワーを開き、無効なら表紙のチャプター一覧にジャンプする |
+
+- 外部の CDN・画像・Web フォントは使わない。別ファイルの CSS・JS も出さない
+- 章どうしのリンクは `#ch-<slug>`・`#見出しID` に、画像は `images/` に書き換える。それ以外の相対リンク（`../samples/x.txt` など）はビルドエラーにする
 - 公開リポジトリに置けるよう、個人情報・実在のアカウント ID・内輪の表現を含めない
 
 ## 工程
@@ -52,13 +62,13 @@ pip install -r <このスキル>/scripts/requirements.txt
 
 - 冒頭に「この章で分かること」、末尾に「まとめ」と確認問題2〜3問（解答は `:::details` で折りたたむ）
 - 図解を1枚以上入れる
-- 文章は一文一義にし、主語と述語を近づける。公式ドキュメントの訳語をそのまま使わず、読者が普段使う言葉に直す（例：「プロビジョニングする」→「作る」、「〜することができます」→「〜できます」）。用語は初出で一言説明する
+- 文章は一文一義にし、主語と述語を近づける。公式ドキュメントの訳語をそのまま使わず、読者が普段使う言葉に直す。用語は初出で一言説明する
 
-Markdown の拡張記法（`:::message`、`:::details`、ファイル名つきのコードブロック、図）は `references/book-format.md` にまとめてある。
+使える記法（`:::message`、`:::details`、`::::details` の入れ子、ファイル名つきコードブロック、図の幅指定とキャプション）は `references/book-format.md` にまとめてある。数式・Mermaid・リンクカードのように JavaScript や外部サービスが要る記法は使わない。図は PNG にする。
 
 ### 5. 図解を作る
 
-図解の元になる HTML を `infographics/` に置き、PNG にする。デザインは html-infographic（または infographic-png）スキルに従う。
+図解の元になる HTML を `infographics/` に置き、PNG にする。デザインは infographic-png スキルに従う。
 
 - 1枚で伝えるメッセージは1つ。要素名を並べるだけの図にせず、流れ・因果・対応関係を描く
 - 1280×720 の HTML を、2倍の解像度（2560×1440）の PNG にする
@@ -66,45 +76,38 @@ Markdown の拡張記法（`:::message`、`:::details`、ファイル名つき�
 
 ```bash
 CHROME=/path/to/chrome bash tools/render-infographics.sh infographics/ch01-roadmap.html
+# コンテナや root で動かすとき
+CHROME=/path/to/chrome CHROME_FLAGS="--no-sandbox" bash tools/render-infographics.sh ...
 ```
 
-Windows の Git Bash では `bash` が WSL を指すことがあるので、`sh tools/render-infographics.sh ...` で実行する。
-
-PNG ができたら必ず自分で開き、はみ出し・重なり・文字化けがないか確かめる。
+Windows の Git Bash では `bash` が WSL を指すことがあるので、`sh tools/render-infographics.sh ...` で実行する。PNG ができたら必ず自分で開き、はみ出し・重なり・文字化け・不要な折り返しがないか確かめる。
 
 ### 6. ビルドして検査する
 
 ```bash
-python tools/build.py                 # src/ から site/ を生成する
-python tools/build.py --format single # src/ から single/（1HTML + images/）を生成する
-python tools/check.py --strict        # リンク切れ・画像・HTML構造・章の型を検査する
-python tools/check.py --strict --site single  # single 版も同じように検査できる
-python tools/public_check.py          # 公開前の検査
-```
-
-- `build.py` は出力ディレクトリを作り直す。`site/` を HTTP サーバーで配信している間は、サーバーを止めてから実行する（Windows ではフォルダを削除できずに失敗する）
-- `single` 形式では、章や画像へのリンクは `#アンカー` と `images/` に書き換えられる。それ以外の相対リンク（`../samples/x.txt` など）はエラーになる
-- `public_check.py` は、許可していない12桁の数字（AWS アカウント ID など）、`example.com` 以外のメールアドレス、許可リストにない URL のドメイン、禁止語を検出する。設定は `references/book-format.md` の「公開前検査の設定」を参照
-- 禁止語（本人の名前、組織名、ユーザー名、ローカルのパスなど）は、リポジトリの外に置いたファイルで渡す。**禁止語のリストそのものを公開リポジトリにコミットしない**。分割した文字列や難読化した形でも、名前が復元できるならコミットしない
-
-```bash
+python tools/build.py              # src/ から site/（index.html + images/）を作り直す
+python tools/check.py --strict     # 構成・外部参照・リンク・HTML構造・章の型
+python tools/browser_check.py      # ブラウザでの自動確認（Playwright が必要）
 python tools/public_check.py --blocklist ~/.config/public-blocklist.txt
 ```
 
+- `build.py` は `site/` を作り直す。HTTP サーバーで配信している間は、サーバーを止めてから実行する（Windows ではフォルダを削除できずに失敗する）
+- `check.py` は、`site/` に `index.html` と `images/` の画像以外のファイルがあるとエラーにする。参照されていない画像は警告にする
+- `browser_check.py` は、`file://`・HTTP・JavaScript 無効・375px 幅・JS 失敗時の5つを Chromium で操作する。使えない環境では終了コード 2 で止まるので、`references/browser-validation.md` の手順で手動確認する
+- `public_check.py` は、許可していない12桁の数字（AWS アカウント ID など）、`example.com` 以外のメールアドレス、許可リストにない URL のドメイン、禁止語を検出する。設定は `references/book-format.md` の「公開前検査の設定」を参照
+- 禁止語（本人の名前、組織名、ユーザー名、ローカルのパスなど）は、リポジトリの外に置いたファイルで渡す。**禁止語のリストそのものを公開リポジトリにコミットしない**。分割した文字列や難読化した形でも、名前が復元できるならコミットしない
+
 ### 7. ブラウザで確かめる
 
-`references/browser-validation.md` のチェックリストに沿って確かめる。少なくとも次の4つの環境で確認する。
+`browser_check.py` の結果（「N件中X件PASS」と表）を確かめ、FAIL を直す。そのうえで、機械では分からない見た目を自分の目で確かめる。少なくとも次の画面をスクリーンショットで見る。
 
-- HTTP 配信 + JavaScript 有効
-- `file://` + JavaScript 有効
-- JavaScript 無効
-- 375px 幅
-
-章リンクの連打や、アンカーを挟んだ「戻る／進む」のように、遷移が重なる操作も試す。
+- JavaScript 有効の表紙と、図・コード・表を含む章（1400px 幅）
+- JavaScript 無効の全体（表紙から最後の章まで縦に並ぶこと）
+- 375px 幅の章
 
 ### 8. 公開する
 
-- `site/`（または `single/`）はビルド済みのままコミットする。読者がビルドしなくても読めるようにするため。`single/` は `index.html` と `images/` だけなのでフォルダごと配布しやすい
+- `site/` はビルド済みのままコミットする。読者がビルドしなくても読めるようにするため。フォルダごと渡せば、どこでも読める
 - `node_modules`、ビルドの中間生成物、ローカルの設定ファイルはコミットしない
 - コミットの前に `public_check.py` をもう一度実行する
 
@@ -115,17 +118,16 @@ python tools/public_check.py --blocklist ~/.config/public-blocklist.txt
 ├── README.md               読み方・ビルド方法・注意事項
 ├── public-check.json       公開前検査の許可リスト（任意）
 ├── src/
-│   ├── book.json           書名・章の一覧
-│   ├── about.md            トップページの紹介文
+│   ├── book.json           書名・表紙・章の一覧
+│   ├── about.md            表紙の「この本について」
 │   ├── chapters/*.md       章の本文
 │   ├── images/*.png        図解（2560×1440）
-│   ├── templates/          index.html・chapter.html・single.html
-│   └── assets/             book.css・book.js・book-single.css・book-single.js
+│   ├── templates/          book.html（外枠）・cover.html（表紙）・chapter.html（章1つ分）
+│   └── assets/             book.css・book.js（どちらも index.html に埋め込まれる）
 ├── infographics/           図解の元 HTML（1280×720）
-├── samples/                サンプルコード（任意）
+├── samples/                サンプルコード（任意。本文からはリンクせず、パスを文字で示す）
 ├── tools/                  scripts/ からコピーしたビルド・検査スクリプト
-├── site/                   ビルド結果・章ごとのHTML版（配布するのはここ）
-└── single/                 ビルド結果・1つのHTML版（index.html + images/）
+└── site/                   ビルド結果（index.html + images/）。配布するのはここ
 ```
 
 ## 品質チェック
@@ -134,6 +136,7 @@ python tools/public_check.py --blocklist ~/.config/public-blocklist.txt
 - [ ] 仕様・料金・提供状況を公式ドキュメントの原文で確かめ、変わりやすい情報に確認時期を書いたか
 - [ ] 各章に「この章で分かること」「まとめ」、確認問題と折りたたんだ解答、図解が1枚以上あるか
 - [ ] 図解の PNG を全部自分で開いて確かめたか
-- [ ] `build.py`・`check.py --strict`・`public_check.py --blocklist ...` がすべて成功したか（`single` を配布するなら `build.py --format single` と `check.py --strict --site single` も）
-- [ ] ブラウザで、HTTP・`file://`・JavaScript 無効・375px 幅の4つを確かめたか（`single` ならハッシュ遷移・戻る／進む・表紙表示も）
+- [ ] `build.py`・`check.py --strict`・`browser_check.py`・`public_check.py --blocklist ...` がすべて成功したか
+- [ ] `site/` が `index.html` と `images/` だけになっているか
+- [ ] JavaScript 有効・無効・375px 幅のスクリーンショットを自分の目で確かめたか
 - [ ] 禁止語のリストや個人情報が、コミットするファイルに含まれていないか
