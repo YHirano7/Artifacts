@@ -57,6 +57,28 @@ jobs:
             --render /tmp/out/preview --report /tmp/out/report.json \
             --build-report /tmp/out/redmine-migration.pptx.build-report.json \
             --engine auto
+      - name: Build + QA AIDD example (template-first, no text-only slides)
+        working-directory: skills/pptx-deck
+        run: |
+          python scripts/build.py \
+            --deck examples/aidd-copilot/deck.json \
+            --map templates/sample-org/template-map.json \
+            -o /tmp/out/aidd-copilot.pptx \
+            --strict
+          python scripts/qa.py /tmp/out/aidd-copilot.pptx \
+            --deck examples/aidd-copilot/deck.json \
+            --map templates/sample-org/template-map.json \
+            --render /tmp/out/aidd-preview --report /tmp/out/aidd-report.json \
+            --build-report /tmp/out/aidd-copilot.pptx.build-report.json \
+            --engine auto
+      - name: Google Slides compatibility report (AIDD example)
+        working-directory: skills/pptx-deck
+        run: |
+          python scripts/build.py \
+            --deck examples/aidd-copilot/deck.json \
+            --map templates/sample-org/template-map.json \
+            -o /tmp/out/aidd-copilot-gslides.pptx \
+            --target google_slides
       - name: Build component gallery
         working-directory: skills/pptx-deck
         run: |
@@ -92,3 +114,7 @@ jobs:
             /tmp/out/gallery-preview/*.png
             /tmp/out/gallery-report.json
             /tmp/out/component-gallery.pptx.build-report.json
+            /tmp/out/aidd-copilot.pptx
+            /tmp/out/aidd-preview/*.png
+            /tmp/out/aidd-report.json
+            /tmp/out/aidd-copilot-gslides.pptx.build-report.json

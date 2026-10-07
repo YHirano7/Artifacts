@@ -1,0 +1,81 @@
+{
+  "fallbacks": [],
+  "native": 12,
+  "library": [
+    {
+      "slide": 2,
+      "component": "message",
+      "variant": "banner",
+      "forced": false
+    },
+    {
+      "slide": 5,
+      "component": "pyramid",
+      "variant": "funnel",
+      "forced": false
+    },
+    {
+      "slide": 6,
+      "component": "tree",
+      "variant": "logic",
+      "forced": false
+    },
+    {
+      "slide": 8,
+      "component": "kpi",
+      "variant": "tiles",
+      "forced": false
+    },
+    {
+      "slide": 10,
+      "component": "cards",
+      "variant": "header",
+      "forced": false
+    },
+    {
+      "slide": 12,
+      "component": "hub",
+      "variant": "flow",
+      "forced": false
+    },
+    {
+      "slide": 13,
+      "component": "swimlane",
+      "variant": "swimlane",
+      "forced": false
+    },
+    {
+      "slide": 15,
+      "component": "scorecard",
+      "variant": "rating",
+      "forced": false
+    },
+    {
+      "slide": 17,
+      "component": "action_plan",
+      "variant": "rows",
+      "forced": false
+    },
+    {
+      "slide": 18,
+      "component": "roadmap",
+      "variant": "roadmap",
+      "forced": false
+    },
+    {
+      "slide": 19,
+      "component": "kpi",
+      "variant": "band",
+      "forced": false
+    },
+    {
+      "slide": 20,
+      "component": "checklist",
+      "variant": "checklist",
+      "forced": false
+    }
+  ],
+  "text_only": [],
+  "target": "powerpoint",
+  "compat": []
+}
