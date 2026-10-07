@@ -21,14 +21,21 @@ jobs:
           python-version: "3.12"
       - name: Install Python deps
         run: pip install -r skills/static-html-book/scripts/requirements.txt
+      - name: Install Playwright (browser check)
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
       - name: Unit tests
         working-directory: skills/static-html-book
+        env:
+          BROWSER_CHECK: "1"
         run: python -m unittest discover -s tests -v
-      - name: Build template book
+      - name: Build and verify template book
         working-directory: skills/static-html-book
         run: |
           python scripts/build.py --book template --out /tmp/site
           python scripts/check.py --site /tmp/site --strict
-          python scripts/build.py --book template --format single --out /tmp/single
-          python scripts/check.py --site /tmp/single --strict
+          python scripts/browser_check.py --site /tmp/site
           python scripts/public_check.py --book template
+      - name: Validate skill package
+        run: python .github/scripts/validate_skill.py skills/static-html-book

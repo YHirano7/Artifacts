@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""静的HTML本ビルドスクリプト。
+"""Zenn本風の静的HTMLドキュメントをビルドする。
 
-src/book.json と src/chapters/*.md から site/ を生成する。
+src/book.json と src/chapters/*.md から、次の2種類のファイルだけを出力する。
+
+  <out>/index.html   CSS・JavaScript を埋め込んだ1枚のHTML（表紙＋全章）
+  <out>/images/      本文から参照している画像だけ
+
+JavaScript が有効なら #ch-<slug> のハッシュで章を1つずつ切り替えて表示し、
+無効なら表紙のあとに全章が縦に並んだ1ページとして読める。fetch を使わないので
+file:// で開いても、HTTP で配信しても同じように動く。
+
 使い方:
-  python tools/build.py                      # 本のディレクトリで実行
+  python tools/build.py                       # 本のディレクトリで実行（出力: site/）
   python build.py --book DIR [--src SRC_DIR] [--out OUT_DIR]
 """
 import argparse
@@ -32,29 +40,45 @@ for _s in (sys.stdout, sys.stderr):
 
 # フェンス言語名 → Pygments lexer 名
 LANG_ALIAS = {
-    "ts": "typescript", "typescript": "typescript",
-    "js": "javascript", "javascript": "javascript",
-    "sh": "bash", "bash": "bash", "shell": "bash",
+    "ts": "typescript", "typescript": "typescript", "tsx": "tsx",
+    "js": "javascript", "javascript": "javascript", "jsx": "jsx",
+    "sh": "bash", "bash": "bash", "shell": "bash", "zsh": "bash",
+    "console": "console", "powershell": "powershell", "ps1": "powershell",
     "yaml": "yaml", "yml": "yaml",
     "json": "json",
     "go": "go", "golang": "go",
+    "py": "python", "python": "python",
+    "java": "java", "kotlin": "kotlin", "rust": "rust", "rs": "rust",
+    "sql": "sql",
     "diff": "diff",
-    "html": "html",
+    "html": "html", "xml": "xml", "css": "css",
     "toml": "toml",
     "ini": "ini",
+    "hcl": "terraform", "terraform": "terraform", "tf": "terraform",
     "dockerfile": "dockerfile",
-    "text": "text", "plaintext": "text", "none": "text", "": "text",
+    "text": "text", "plaintext": "text", "txt": "text", "none": "text", "": "text",
 }
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif"}
 
-VOID_CHECK = re.compile(r"\{\{[a-zA-Z_][a-zA-Z0-9_]*\}\}")
+PLACEHOLDER = re.compile(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}")
 FENCE_OPEN = re.compile(r"^(`{3,}|~{3,})\s*([^`]*?)\s*$")
 FENCE_CLOSE = re.compile(r"^(`{3,}|~{3,})\s*$")
-ZENN_OPEN = re.compile(r"^:::(message|details)\b\s*(.*)$")
-ZENN_CLOSE = re.compile(r"^:::\s*$")
-IMAGE_LINE = re.compile(r'^!\[([^\]]*)\]\(([^\s)"]+)(?:\s+"([^"]*)")?\)\s*$')
+# Zenn と同じく、入れ子にするときは外側のコロンを増やせる（::::details の中に :::message）。
+BLOCK_OPEN = re.compile(r"^(:{3,})(message|details)\b\s*(.*)$")
+BLOCK_CLOSE = re.compile(r"^(:{3,})\s*$")
+# ![代替テキスト](パス =600x "title")。=600x は Zenn の幅指定。
+IMAGE_LINE = re.compile(
+    r'^!\[([^\]]*)\]\(([^\s)"]+)(?:\s+=(\d+)x)?(?:\s+"([^"]*)")?\)\s*$')
+# 画像の直後の行に *キャプション* と書く Zenn の書き方
+CAPTION_LINE = re.compile(r"^\*([^*\s][^*]*)\*\s*$")
 HEADING = re.compile(r"<h([23])[^>]*>(.*?)</h\1>", re.S)
 TABLE_TAG = re.compile(r"<table\b[^>]*>.*?</table>", re.S)
 TAG = re.compile(r"<[^>]+>")
+LINK_ATTR = re.compile(r'\b(href|src)="([^"]*)"')
+HTML_PATH = re.compile(r"^(?:\.\./)?(?:chapters/)?([^/]+)\.html$")
+IMG_PATH = re.compile(r"^(?:\.\./)*(images/[^?#]+)$")
+ID_ATTR = re.compile(r'\bid="([^"]+)"')
+CSS_URL = re.compile(r"url\(\s*['\"]?([^)'\"]+)", re.I)
 
 
 def die(msg):
@@ -66,14 +90,31 @@ def strip_tags(s):
     return html.unescape(TAG.sub("", s))
 
 
-def png_size(path):
-    """PNG の IHDR から (width, height) を読む。"""
-    with open(path, "rb") as f:
-        head = f.read(33)
-    if len(head) < 33 or head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
-        die(f"not a PNG file: {path}")
-    w, h = struct.unpack(">II", head[16:24])
-    return w, h
+def esc(s):
+    return html.escape(s)
+
+
+def esc_br(s):
+    """HTML エスケープしてから改行を <br> にする（表紙タイトル用）。"""
+    return html.escape(s).replace("\n", "<br>")
+
+
+def image_size(path):
+    """画像の (width, height) を返す。分からなければ None。"""
+    if path.suffix.lower() == ".png":
+        with open(path, "rb") as f:
+            head = f.read(33)
+        if len(head) < 33 or head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+            die(f"not a PNG file: {path}")
+        return struct.unpack(">II", head[16:24])
+    if path.suffix.lower() == ".svg":
+        return None
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    with Image.open(path) as im:
+        return im.size
 
 
 class ChapterRenderer:
@@ -83,17 +124,18 @@ class ChapterRenderer:
         self.src_dir = src_dir
         self.md = md
         self.formatter = HtmlFormatter(nowrap=True)
-        self.text_chars = 0   # 本文の非空白文字数（コードブロック・図版を除く）
+        self.text_chars = 0   # 本文の非空白文字数（コードブロック・図を除く）
         self.code_lines = 0   # コードブロックの行数
-
-    # ---- ブロック部品 ----
 
     def render_code(self, info, code):
         """```lang[:filename] を code-block HTML にする。"""
         lang_raw, _, fname = info.partition(":")
         lang_raw = lang_raw.strip().lower()
         lexer_name = LANG_ALIAS.get(lang_raw, "text")
-        lexer = TextLexer() if lexer_name == "text" else get_lexer_by_name(lexer_name)
+        try:
+            lexer = TextLexer() if lexer_name == "text" else get_lexer_by_name(lexer_name)
+        except Exception:
+            lexer = TextLexer()
         code_html = highlight(code, lexer, self.formatter)
         self.code_lines += code.count("\n") + (0 if code.endswith("\n") else 1)
         cls = html.escape(lang_raw or "text", quote=True)
@@ -103,22 +145,32 @@ class ChapterRenderer:
         return (f'<div class="code-block">{file_div}'
                 f'<pre class="hl"><code class="language-{cls}">{code_html}</code></pre></div>')
 
-    def render_figure(self, line):
+    def render_figure(self, line, caption=None):
         m = IMAGE_LINE.match(line)
-        alt, src = m.group(1), m.group(2)
-        # ../images/x.png のような src/chapters 相対パスを src_dir 基準で検証する
-        rel = re.sub(r"^(\.\./)+", "", src)
-        img_path = self.src_dir / rel
-        if not img_path.is_file():
-            die(f"image not found: {src} (resolved: {img_path})")
-        w, h = png_size(img_path)
-        w, h = w // 2, h // 2  # インフォグラフィックは deviceScaleFactor 2 で描画済み
+        alt, src, width = m.group(1), m.group(2), m.group(3)
+        attrs = ""
+        if not re.match(r"^(https?:|data:)", src):
+            # ../images/x.png のような src/chapters 相対パスを src_dir 基準で検証する
+            rel = re.sub(r"^(\.\./)+", "", src)
+            img_path = self.src_dir / rel
+            if not img_path.is_file():
+                die(f"image not found: {src} (resolved: {img_path})")
+            size = image_size(img_path)
+            if size and width:
+                w = int(width)
+                attrs = f' width="{w}" height="{round(size[1] * w / size[0])}"'
+            elif size:
+                # 図は 2 倍の解像度で作る前提なので、表示サイズは半分にする
+                attrs = f' width="{size[0] // 2}" height="{size[1] // 2}"'
+            elif width:
+                attrs = f' width="{int(width)}"'
+        elif width:
+            attrs = f' width="{int(width)}"'
+        cap = caption if caption is not None else alt
+        cap_html = f"<figcaption>{html.escape(cap)}</figcaption>" if cap else ""
         return (f'<figure class="fig"><img src="{html.escape(src, quote=True)}" '
-                f'alt="{html.escape(alt, quote=True)}" loading="lazy" '
-                f'width="{w}" height="{h}">'
-                f'<figcaption>{html.escape(alt)}</figcaption></figure>')
-
-    # ---- ブロック走査 ----
+                f'alt="{html.escape(alt, quote=True)}" loading="lazy" decoding="async"'
+                f'{attrs}>{cap_html}</figure>')
 
     def render_lines(self, lines):
         """行リストを HTML に変換する。:::details / :::message は再帰処理。"""
@@ -161,26 +213,36 @@ class ChapterRenderer:
                 i = j + 1
                 continue
 
-            zm = ZENN_OPEN.match(line)
-            if zm:
+            bm = BLOCK_OPEN.match(line)
+            if bm:
                 flush()
-                kind, rest = zm.group(1), zm.group(2).strip()
+                colons, kind, rest = bm.group(1), bm.group(2), bm.group(3).strip()
                 j = i + 1
                 inner = []
                 depth = 1
                 closed = False
+                in_fence = None
                 while j < n:
-                    if ZENN_OPEN.match(lines[j]):
-                        depth += 1
-                    elif ZENN_CLOSE.match(lines[j]):
-                        depth -= 1
-                        if depth == 0:
-                            closed = True
-                            break
-                    inner.append(lines[j])
+                    cur = lines[j]
+                    if in_fence:
+                        if FENCE_CLOSE.match(cur) and cur.strip().startswith(in_fence):
+                            in_fence = None
+                    elif FENCE_OPEN.match(cur):
+                        in_fence = FENCE_OPEN.match(cur).group(1)
+                    else:
+                        om = BLOCK_OPEN.match(cur)
+                        cm = BLOCK_CLOSE.match(cur)
+                        if om and len(om.group(1)) == len(colons):
+                            depth += 1
+                        elif cm and len(cm.group(1)) == len(colons):
+                            depth -= 1
+                            if depth == 0:
+                                closed = True
+                                break
+                    inner.append(cur)
                     j += 1
                 if not closed:
-                    die(f"unclosed :::{kind} block")
+                    die(f"unclosed {colons}{kind} block")
                 body = self.render_lines(inner)
                 if kind == "message":
                     variant = "msg-alert" if rest == "alert" else "msg-info"
@@ -195,12 +257,15 @@ class ChapterRenderer:
                 i = j + 1
                 continue
 
-            if IMAGE_LINE.match(line) and (i + 1 == n or not lines[i + 1].strip()) \
-                    and (not buf or not buf[-1].strip()):
-                flush()
-                out.append(self.render_figure(line))
-                i += 1
-                continue
+            if IMAGE_LINE.match(line) and (not buf or not buf[-1].strip()):
+                nxt = lines[i + 1] if i + 1 < n else ""
+                cap_m = CAPTION_LINE.match(nxt)
+                end = i + 2 if cap_m else i + 1
+                if end >= n or not lines[end].strip():
+                    flush()
+                    out.append(self.render_figure(line, cap_m.group(1) if cap_m else None))
+                    i = end
+                    continue
 
             buf.append(line)
             i += 1
@@ -210,9 +275,8 @@ class ChapterRenderer:
 
     def render_file(self, path):
         if not path.is_file():
-            die(f"chapter file not found: {path}")
-        text = path.read_text(encoding="utf-8")
-        return self.render_lines(text.splitlines())
+            die(f"file not found: {path}")
+        return self.render_lines(path.read_text(encoding="utf-8").splitlines())
 
     def reading_minutes(self):
         return max(1, math.ceil(self.text_chars / 500 + self.code_lines / 20))
@@ -231,16 +295,12 @@ def assign_heading_ids(body, chapter_no):
         heads.append((level, hid, strip_tags(inner).strip()))
         return f'<h{level} id="{hid}">{inner}</h{level}>'
 
-    body = HEADING.sub(repl, body)
-    return body, heads
+    return HEADING.sub(repl, body), heads
 
 
 def build_toc(heads):
-    """h2 直下に h3 をネストした <ol class="toc"> を生成。"""
-    if not heads:
-        return '<ol class="toc"></ol>'
-    items = []
-    cur = None  # [level, id, text, children]
+    """h2 直下に h3 をネストした <ol class="toc"> を生成する。"""
+    cur = None
     roots = []
     for level, hid, text in heads:
         node = (hid, text, [])
@@ -265,68 +325,73 @@ def wrap_tables(body):
 
 
 def substitute(template, values, where):
-    """{{name}} を単一パスで置換する。未定義キー・残留プレースホルダはエラー。"""
+    """{{name}} を単一パスで置換する。未定義のキーはエラー。"""
     def repl(m):
         key = m.group(1)
         if key not in values:
             die(f"unknown placeholder {{{{{key}}}}} in {where}")
         return values[key]
-    # 単一パスで置換する。コンテンツ中の {{...}} は再スキャンされない。
-    out = re.sub(r"\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}", repl, template)
-    if VOID_CHECK.search(out):
-        die(f"unsubstituted placeholder remains in {where}: "
-            f"{VOID_CHECK.search(out).group(0)}")
-    return out
+    # 単一パスで置換するので、差し込んだ本文中の {{...}} は再スキャンされない。
+    return PLACEHOLDER.sub(repl, template)
 
 
-def esc(s):
-    return html.escape(s)
+def rewrite_refs(fragment, slugs, where, used_images):
+    """href/src を1ファイル内の参照に書き換え、参照している画像を集める。"""
+    def repl(m):
+        attr, ref = m.group(1), m.group(2)
+        if not ref or ref.startswith(("#", "http://", "https://", "mailto:", "tel:", "data:")):
+            return m.group(0)
+        path, _, frag = html.unescape(ref).partition("#")
+        mm = HTML_PATH.match(path)
+        if mm:
+            name = mm.group(1)
+            if name in slugs:
+                return f'{attr}="#{frag}"' if frag else f'{attr}="#ch-{name}"'
+            if name == "index":
+                return f'{attr}="#{frag}"' if frag else f'{attr}="#top"'
+        im = IMG_PATH.match(path)
+        if im:
+            used_images.add(im.group(1))
+            return f'{attr}="{html.escape(im.group(1), quote=True)}"'
+        die(f'unsupported relative link "{ref}" in {where} '
+            "（出力は index.html と images/ だけなので、章・表紙・images/ 以外は参照できません）")
+    return LINK_ATTR.sub(repl, fragment)
 
 
-def esc_br(s):
-    """HTML エスケープしてから改行を <br> にする（表紙タイトル用）。"""
-    return html.escape(s).replace("\n", "<br>")
-
-
-def chapter_list_html(chapters, current_slug):
-    items = []
-    for i, ch in enumerate(chapters, 1):
-        cur = ' aria-current="page"' if ch["slug"] == current_slug else ""
-        items.append(
-            f'<li><a href="{ch["slug"]}.html"{cur}>'
-            f'<span class="ch-no">{i}</span>'
-            f'<span class="ch-title">{esc(ch["title"])}</span></a></li>')
-    return "\n".join(items)
+def chapter_list_html(chapters):
+    return "\n".join(
+        f'<li><a href="#ch-{ch["slug"]}">'
+        f'<span class="ch-no">{i}</span>'
+        f'<span class="ch-title">{esc(ch["title"])}</span></a></li>'
+        for i, ch in enumerate(chapters, 1))
 
 
 def chapter_cards_html(chapters):
-    items = []
-    for i, ch in enumerate(chapters, 1):
-        items.append(
-            f'<li><a href="chapters/{ch["slug"]}.html">'
-            f'<span class="ic-no">Chapter {i:02d}</span>'
-            f'<span class="ic-title">{esc(ch["title"])}</span>'
-            f'<span class="ic-summary">{esc(ch["summary"])}</span></a></li>')
-    return "\n".join(items)
+    return "\n".join(
+        f'<li><a href="#ch-{ch["slug"]}">'
+        f'<span class="ic-no">Chapter {i:02d}</span>'
+        f'<span class="ic-title">{esc(ch["title"])}</span>'
+        f'<span class="ic-summary">{esc(ch["summary"])}</span></a></li>'
+        for i, ch in enumerate(chapters, 1))
 
 
 def pager_html(chapters, idx, book_title):
     prev_ch = chapters[idx - 1] if idx > 0 else None
     next_ch = chapters[idx + 1] if idx + 1 < len(chapters) else None
     if prev_ch:
-        prev = (f'<a class="pager-link prev" href="{prev_ch["slug"]}.html" rel="prev">'
+        prev = (f'<a class="pager-link prev" href="#ch-{prev_ch["slug"]}" rel="prev">'
                 f'<span class="pager-dir">← 前のチャプター</span>'
                 f'<span class="pager-title">{esc(prev_ch["title"])}</span></a>')
     else:
-        prev = (f'<a class="pager-link prev" href="../index.html" rel="prev">'
+        prev = (f'<a class="pager-link prev" href="#top" rel="prev">'
                 f'<span class="pager-dir">← 本のトップ</span>'
                 f'<span class="pager-title">{esc(book_title)}</span></a>')
     if next_ch:
-        nxt = (f'<a class="pager-link next" href="{next_ch["slug"]}.html" rel="next">'
+        nxt = (f'<a class="pager-link next" href="#ch-{next_ch["slug"]}" rel="next">'
                f'<span class="pager-dir">次のチャプター →</span>'
                f'<span class="pager-title">{esc(next_ch["title"])}</span></a>')
     else:
-        nxt = (f'<a class="pager-link next" href="../index.html" rel="next">'
+        nxt = (f'<a class="pager-link next" href="#top" rel="next">'
                f'<span class="pager-dir">本のトップへ →</span>'
                f'<span class="pager-title">{esc(book_title)}</span></a>')
     return prev + "\n" + nxt
@@ -337,277 +402,171 @@ def format_duration(minutes):
     return f"{h}時間{m}分" if h else f"{m}分"
 
 
-def meta_display(meta):
-    """表紙・フッターなど、全ページ共通の表示値を返す。改行は <br> にする。"""
-    book_title = meta["title"]
-    cover_title = meta.get("cover_title") or book_title
-    mini_cover_title = meta.get("mini_cover_title") or cover_title
-    footer_note = meta.get("footer_note") or ""
-    return {
-        "lang": esc(meta.get("lang", "ja")),
-        "book_title": esc(book_title),
-        "cover_title": esc_br(cover_title),
-        "mini_cover_title": esc_br(mini_cover_title),
-        "footer_note_html": (f'<p class="footer-note">{esc_br(footer_note)}</p>'
-                             if footer_note else ""),
-        "updated": esc(meta["updated"]),
-    }
+def validate_meta(meta):
+    for key in ("title", "subtitle", "updated", "chapters"):
+        if not meta.get(key):
+            die(f"book.json: {key} は必須です")
+    seen = set()
+    for i, ch in enumerate(meta["chapters"], 1):
+        for key in ("file", "slug", "title", "summary"):
+            if not ch.get(key):
+                die(f"book.json: chapters[{i}].{key} は必須です")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", ch["slug"]):
+            die(f"book.json: slug は英数字・-・_ だけにしてください: {ch['slug']}")
+        if ch["slug"] in seen:
+            die(f"book.json: slug が重複しています: {ch['slug']}")
+        seen.add(ch["slug"])
 
 
-def render_chapter(src_dir, md, ch, ch_no):
-    """章 Markdown → (body HTML, toc HTML, 読了分数)。両フォーマットで共用。"""
-    r = ChapterRenderer(src_dir, md)
-    body = r.render_file(src_dir / "chapters" / ch["file"])
-    body = wrap_tables(body)
-    body, heads = assign_heading_ids(body, ch_no)
-    return body, build_toc(heads), r.reading_minutes()
+def load_assets(src_dir):
+    css_path, js_path = src_dir / "assets" / "book.css", src_dir / "assets" / "book.js"
+    for p in (css_path, js_path):
+        if not p.is_file():
+            die(f"{p.relative_to(src_dir)} がありません。スキルの template/src/assets からコピーしてください")
+    css, js = css_path.read_text(encoding="utf-8"), js_path.read_text(encoding="utf-8")
+    for m in CSS_URL.finditer(css):
+        if not re.match(r"(data:|#)", m.group(1), re.I):
+            die(f"book.css の url() は data: URI だけにしてください（1ファイルに埋め込むため）: {m.group(1)}")
+    if re.search(r"@import\b", css, re.I):
+        die("book.css に @import は使えません")
+    if "</style" in css.lower():
+        die("book.css に </style> が含まれるため埋め込めません")
+    if "</script" in js.lower():
+        die("book.js に </script> が含まれるため埋め込めません")
+    return css, js
 
 
-def chapter_page_values(disp, chapters, ch, idx, toc, body, minutes):
-    """chapter.html に渡す値一式。サイト版・単一ファイル版で同じページを作る。"""
-    ch_no = idx + 1
-    v = dict(disp)
-    v.update({
-        "chapter_title": esc(ch["title"]),
-        "chapter_summary": esc(ch["summary"]),
-        "chapter_no": str(ch_no),
-        "chapter_no_padded": f"{ch_no:02d}",
-        "reading_minutes": str(minutes),
-        "chapter_list": chapter_list_html(chapters, ch["slug"]),
-        "toc": toc,
-        "body": body,
-        "pager": pager_html(chapters, idx, disp["book_title"]),
-    })
-    return v
-
-
-def render_index(src_dir, md, tpl_index, meta, disp, chapters, total_minutes):
-    """index.html のレンダリング結果（全文）を返す。"""
-    desc_file = meta.get("description_file", "about.md")
-    r = ChapterRenderer(src_dir, md)
-    about_html = r.render_file(src_dir / desc_file)
-    plain = re.sub(r"\s+", " ", strip_tags(about_html)).strip()
-    return substitute(tpl_index, {
-        "lang": disp["lang"],
-        "book_title": disp["book_title"],
-        "cover_title": disp["cover_title"],
-        "footer_note_html": disp["footer_note_html"],
-        "book_subtitle": esc(meta["subtitle"]),
-        "book_description_plain": esc(plain[:120]),
-        "book_description": about_html,
-        "chapter_count": str(len(chapters)),
-        "total_hours": format_duration(total_minutes),
-        "updated": disp["updated"],
-        "first_chapter_href": f"chapters/{chapters[0]['slug']}.html",
-        "chapter_cards": chapter_cards_html(chapters),
-    }, "index.html")
-
-
-# ---- 単一ファイル（single）フォーマット ----
-
-ARTICLE_RE = re.compile(r'<article class="chapter-card">.*</article>', re.S)
-MAIN_INNER_RE = re.compile(r"<main\b[^>]*>(.*)</main>", re.S)
-SIDE_BOOK_RE = re.compile(r'<a class="side-book"[^>]*>.*?</a>', re.S)
-FOOTER_RE = re.compile(r'<footer class="site-footer"[^>]*>.*?</footer>', re.S)
-LINK_ATTR = re.compile(r'(href|src)="([^"]*)"')
-HTML_PATH = re.compile(r"^(?:\.\./)?(?:chapters/)?([^/]+)\.html$")
-IMG_PATH = re.compile(r"^(?:\.\./)?(images/.+)$")
-ID_ATTR = re.compile(r'\bid="([^"]+)"')
-CSS_URL = re.compile(r"url\(\s*['\"]?([^)'\"]+)", re.I)
-
-
-def rewrite_refs(fragment, slugs, where):
-    """href/src を単一ファイル内の参照に書き換える。未対応の相対リンクはエラー。"""
-    def repl(m):
-        attr, ref = m.group(1), m.group(2)
-        if not ref or ref.startswith(("#", "http://", "https://", "mailto:", "tel:", "data:")):
-            return m.group(0)
-        path, _, frag = ref.partition("#")
-        mm = HTML_PATH.match(path)
-        if mm:
-            name = mm.group(1)
-            if name in slugs:
-                return f'{attr}="#{frag}"' if frag else f'{attr}="#ch-{name}"'
-            if name == "index":
-                return f'{attr}="#{frag}"' if frag else f'{attr}="#top"'
-        im = IMG_PATH.match(path)
-        if im:
-            return f'{attr}="{im.group(1)}"'
-        die(f'single format: unsupported relative link "{ref}" in {where}')
-    return LINK_ATTR.sub(repl, fragment)
-
-
-def chapter_list_single(chapters):
-    items = []
-    for i, ch in enumerate(chapters, 1):
-        items.append(
-            f'<li><a href="#ch-{ch["slug"]}">'
-            f'<span class="ch-no">{i}</span>'
-            f'<span class="ch-title">{esc(ch["title"])}</span></a></li>')
-    return "\n".join(items)
-
-
-def build_single(src_dir, out_dir, meta, disp, chapters, rendered, index_html):
-    """1つの index.html + images/ を出力する。"""
-    needed = [src_dir / "templates" / "single.html",
-              src_dir / "assets" / "book-single.css",
-              src_dir / "assets" / "book-single.js"]
-    missing = [str(p.relative_to(src_dir)) for p in needed if not p.is_file()]
+def load_templates(src_dir):
+    tpl_dir = src_dir / "templates"
+    names = ("book.html", "cover.html", "chapter.html")
+    missing = [n for n in names if not (tpl_dir / n).is_file()]
     if missing:
-        die("single format には src/ に次のファイルが必要です: "
-            + ", ".join(missing)
-            + "。スキルの template/src からコピーしてください。")
-
-    book_css = (src_dir / "assets" / "book.css").read_text(encoding="utf-8")
-    for m in CSS_URL.finditer(book_css):
-        if not re.match(r"(https?:|data:|#)", m.group(1), re.I):
-            die(f"book.css に相対パスの url() があるため単一ファイルにできません: {m.group(1)}")
-    inline_css = book_css + "\n" + (src_dir / "assets" / "book-single.css").read_text(encoding="utf-8")
-    inline_js = (src_dir / "assets" / "book-single.js").read_text(encoding="utf-8")
-    for name, text in (("book-single.css", inline_css), ("book-single.js", inline_js)):
-        if "</style" in text.lower() or "</script" in text.lower():
-            die(f"{name} に </script> または </style> が含まれるためインライン化できません")
-
-    slugs = {ch["slug"] for ch in chapters}
-    book_title = meta["title"]
-
-    # サイドバーの表紙リンクとフッターは章テンプレート側から取り込む
-    first_page = rendered[0][3]
-    m = SIDE_BOOK_RE.search(first_page)
-    if not m:
-        die("chapter テンプレートの出力に <a class=\"side-book\"> が見つかりません"
-            "（src/templates/chapter.html を確認）")
-    side_book = rewrite_refs(m.group(0), slugs, "side-book")
-    m = FOOTER_RE.search(first_page)
-    if not m:
-        die("chapter テンプレートの出力に <footer class=\"site-footer\"> が見つかりません"
-            "（src/templates/chapter.html を確認）")
-    footer = rewrite_refs(m.group(0), slugs, "site-footer")
-
-    # 表紙: index.html の <main> の中身
-    m = MAIN_INNER_RE.search(index_html)
-    if not m:
-        die("index.html テンプレートの出力に <main> が見つかりません（src/templates/index.html を確認）")
-    cover = rewrite_refs(m.group(1), slugs, "cover")
-
-    sections, toc_cards = [], []
-    for (ch, ch_no, _toc, page_html, _min) in rendered:
-        m = ARTICLE_RE.search(page_html)
-        if not m:
-            die("chapter テンプレートの出力に <article class=\"chapter-card\"> が見つかりません"
-                f"（src/templates/chapter.html を確認）: {ch['slug']}")
-        article = rewrite_refs(m.group(0), slugs, f"chapter {ch['slug']}")
-        pager = rewrite_refs(pager_html(chapters, ch_no - 1, book_title),
-                             slugs, f"pager of {ch['slug']}")
-        toc_card = (f'<div class="toc-card" data-chapter-toc="ch-{ch["slug"]}">'
-                    f'<p class="toc-heading">目次</p>{_toc}</div>')
-        sections.append(
-            f'<section class="single-chapter" id="ch-{ch["slug"]}" '
-            f'data-title="{html.escape(ch["title"] + " | " + book_title, quote=True)}" '
-            f'data-label="Chapter {ch_no:02d}">\n'
-            f'{article}\n'
-            f'<nav class="pager" aria-label="チャプター移動">\n{pager}\n</nav>\n'
-            f'</section>')
-        toc_cards.append(toc_card)
-
-    tpl_single = (src_dir / "templates" / "single.html").read_text(encoding="utf-8")
-    out = substitute(tpl_single, {
-        "lang": disp["lang"],
-        "book_title": disp["book_title"],
-        "book_description_plain": substitute_index_plain(index_html),
-        "side_book": side_book,
-        "footer": footer,
-        "chapter_list": rewrite_refs(chapter_list_single(chapters), slugs, "chapter_list"),
-        "cover": cover,
-        "chapters": "\n".join(sections),
-        "page_tocs": "\n".join(toc_cards),
-        "inline_css": inline_css,
-        "inline_js": inline_js,
-    }, "single.html")
-
-    ids = ID_ATTR.findall(out)
-    dup = sorted({i for i in ids if ids.count(i) > 1})
-    if dup:
-        die(f"single format: duplicated id(s) in output: {', '.join(dup)}")
-
-    out_dir.mkdir(parents=True)
-    (out_dir / "index.html").write_text(out, encoding="utf-8")
-    if (src_dir / "images").is_dir():
-        shutil.copytree(src_dir / "images", out_dir / "images")
-    print(f"built index.html (single: {len(chapters)} chapters)")
-
-
-def substitute_index_plain(index_html):
-    """レンダリング済み index.html から meta description 用のテキストを取り出す。"""
-    m = re.search(r'<meta name="description" content="([^"]*)">', index_html)
-    return m.group(1) if m else ""
+        old = (tpl_dir / "index.html").is_file()
+        hint = ("旧形式（章ごとのHTML）のテンプレートです。references/book-format.md の"
+                "「旧形式からの移行」を参照してください" if old else
+                "スキルの template/src/templates からコピーしてください")
+        die(f"src/templates/ に {', '.join(missing)} がありません。{hint}")
+    return {n: (tpl_dir / n).read_text(encoding="utf-8") for n in names}
 
 
 def main():
-    ap = argparse.ArgumentParser(description="静的HTML本をビルドする")
+    ap = argparse.ArgumentParser(description="Zenn本風の静的HTMLドキュメントをビルドする")
     ap.add_argument("--book", default=".", help="本のディレクトリ（既定: カレント）")
     ap.add_argument("--src", default=None, help="既定: <book>/src")
-    ap.add_argument("--out", default=None,
-                    help="既定: <book>/site（--format site）、<book>/single（--format single）")
-    ap.add_argument("--format", choices=["site", "single"], default="site",
-                    help="出力形式（既定: site）")
+    ap.add_argument("--out", default=None, help="既定: <book>/site")
     args = ap.parse_args()
     book_dir = Path(args.book).resolve()
     src_dir = Path(args.src).resolve() if args.src else book_dir / "src"
-    out_dir = (Path(args.out).resolve() if args.out
-               else book_dir / ("site" if args.format == "site" else "single"))
+    out_dir = Path(args.out).resolve() if args.out else book_dir / "site"
 
     meta_path = src_dir / "book.json"
     if not meta_path.is_file():
         die(f"book.json not found: {meta_path}")
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    validate_meta(meta)
     chapters = meta["chapters"]
+    slugs = {ch["slug"] for ch in chapters}
     book_title = meta["title"]
-    disp = meta_display(meta)
+    tpl = load_templates(src_dir)
+    css, js = load_assets(src_dir)
 
-    tpl_index = (src_dir / "templates" / "index.html").read_text(encoding="utf-8")
-    tpl_chapter = (src_dir / "templates" / "chapter.html").read_text(encoding="utf-8")
+    md = markdown.Markdown(extensions=["tables", "sane_lists", "attr_list"])
+    used_images = set()
+    common = {
+        "lang": esc(meta.get("lang", "ja")),
+        "book_title": esc(book_title),
+        "updated": esc(meta["updated"]),
+    }
+
+    sections, toc_cards, total_minutes = [], [], 0
+    for idx, ch in enumerate(chapters):
+        ch_no = idx + 1
+        r = ChapterRenderer(src_dir, md)
+        body = wrap_tables(r.render_file(src_dir / "chapters" / ch["file"]))
+        body, heads = assign_heading_ids(body, ch_no)
+        toc = build_toc(heads)
+        minutes = r.reading_minutes()
+        total_minutes += minutes
+        section = substitute(tpl["chapter.html"], dict(common, **{
+            "chapter_slug": ch["slug"],
+            "chapter_title": esc(ch["title"]),
+            "chapter_summary": esc(ch["summary"]),
+            "chapter_no": str(ch_no),
+            "chapter_no_padded": f"{ch_no:02d}",
+            "reading_minutes": str(minutes),
+            "toc": toc,
+            "body": body,
+            "pager": pager_html(chapters, idx, book_title),
+        }), f"chapter.html ({ch['slug']})")
+        sections.append(rewrite_refs(section, slugs, f"chapter {ch['slug']}", used_images))
+        toc_cards.append(f'<div class="toc-card" data-chapter-toc="ch-{ch["slug"]}">'
+                         f'<p class="toc-heading">目次</p>{toc}</div>')
+        print(f"rendered {ch['slug']} (約{minutes}分)")
+
+    about_html = ChapterRenderer(src_dir, md).render_file(
+        src_dir / meta.get("description_file", "about.md"))
+    plain = re.sub(r"\s+", " ", strip_tags(about_html)).strip()
+    cover_title = meta.get("cover_title") or book_title
+    cover_sub = meta.get("cover_sub") or ""
+    cover = substitute(tpl["cover.html"], dict(common, **{
+        "cover_title": esc_br(cover_title),
+        "cover_sub_html": (f'<span class="cover-sub">{esc_br(cover_sub)}</span>'
+                           if cover_sub else ""),
+        "book_subtitle": esc(meta["subtitle"]),
+        "book_description": about_html,
+        "chapter_count": str(len(chapters)),
+        "total_hours": format_duration(total_minutes),
+        "first_chapter_href": f"#ch-{chapters[0]['slug']}",
+        "chapter_cards": chapter_cards_html(chapters),
+    }), "cover.html")
+    cover = rewrite_refs(cover, slugs, "cover", used_images)
+
+    footer_note = meta.get("footer_note") or ""
+    out = substitute(tpl["book.html"], dict(common, **{
+        "book_description_plain": esc(plain[:120]),
+        "mini_cover_title": esc_br(meta.get("mini_cover_title") or cover_title),
+        "chapter_list": chapter_list_html(chapters),
+        "cover": cover,
+        "chapters": "\n".join(sections),
+        "page_tocs": "\n".join(toc_cards),
+        "footer_note_html": (f'<p class="footer-note">{esc_br(footer_note)}</p>'
+                             if footer_note else ""),
+        # CSS・JS は参照の書き換え対象から外すため、あとで差し込む
+        "inline_css": "\x00CSS\x00",
+        "inline_js": "\x00JS\x00",
+    }), "book.html")
+    out = rewrite_refs(out, slugs, "book.html", used_images)
+    out = out.replace("\x00CSS\x00", css, 1).replace("\x00JS\x00", js, 1)
+
+    ids = ID_ATTR.findall(out)
+    dup = sorted({i for i in ids if ids.count(i) > 1})
+    if dup:
+        die(f"duplicated id(s) in output: {', '.join(dup)}")
+
+    for rel in sorted(used_images):
+        p = src_dir / rel
+        if not p.is_file():
+            die(f"image not found: {rel}")
+        if p.suffix.lower() not in IMAGE_EXTS:
+            die(f"画像以外のファイルは出力できません: {rel}")
 
     if out_dir.exists():
         shutil.rmtree(out_dir)
-    md = markdown.Markdown(extensions=["tables", "sane_lists", "attr_list"])
-    total_minutes = 0
-
-    if args.format == "single":
-        rendered = []
-        for idx, ch in enumerate(chapters):
-            ch_no = idx + 1
-            body, toc, minutes = render_chapter(src_dir, md, ch, ch_no)
-            total_minutes += minutes
-            page_html = substitute(tpl_chapter,
-                                   chapter_page_values(disp, chapters, ch, idx, toc, body, minutes),
-                                   f"chapter {ch['slug']}")
-            rendered.append((ch, ch_no, toc, page_html, minutes))
-        index_html = render_index(src_dir, md, tpl_index, meta, disp, chapters, total_minutes)
-        build_single(src_dir, out_dir, meta, disp, chapters, rendered, index_html)
-        return
-
-    (out_dir / "chapters").mkdir(parents=True)
-    if (src_dir / "assets").is_dir():
-        # single 専用のアセットは埋め込み用なので、章ごとのサイトにはコピーしない
-        shutil.copytree(src_dir / "assets", out_dir / "assets",
-                        ignore=shutil.ignore_patterns("book-single.css", "book-single.js"))
-    if (src_dir / "images").is_dir():
-        shutil.copytree(src_dir / "images", out_dir / "images")
-
-    for idx, ch in enumerate(chapters):
-        ch_no = idx + 1
-        body, toc, minutes = render_chapter(src_dir, md, ch, ch_no)
-        total_minutes += minutes
-        html_out = substitute(tpl_chapter,
-                              chapter_page_values(disp, chapters, ch, idx, toc, body, minutes),
-                              f"chapter {ch['slug']}")
-        (out_dir / "chapters" / f"{ch['slug']}.html").write_text(html_out, encoding="utf-8")
-        print(f"built chapters/{ch['slug']}.html (約{minutes}分)")
-
-    index_html = render_index(src_dir, md, tpl_index, meta, disp, chapters, total_minutes)
-    (out_dir / "index.html").write_text(index_html, encoding="utf-8")
-    print(f"built index.html ({len(chapters)} chapters, 約{format_duration(total_minutes)})")
+    out_dir.mkdir(parents=True)
+    (out_dir / "index.html").write_text(out, encoding="utf-8")
+    for rel in sorted(used_images):
+        dest = out_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_dir / rel, dest)
+    unused = sorted(str(p.relative_to(src_dir)).replace("\\", "/")
+                    for p in (src_dir / "images").rglob("*")
+                    if p.is_file() and str(p.relative_to(src_dir)).replace("\\", "/") not in used_images) \
+        if (src_dir / "images").is_dir() else []
+    for u in unused:
+        print(f"note: 本文から参照されていない画像はコピーしません: {u}")
+    size_kb = (out_dir / "index.html").stat().st_size // 1024
+    print(f"built {out_dir.name}/index.html ({len(chapters)} chapters, 約{format_duration(total_minutes)}, "
+          f"{size_kb}KB) + images/ ({len(used_images)} files)")
 
 
 if __name__ == "__main__":

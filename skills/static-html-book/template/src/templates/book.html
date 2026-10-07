@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="{{lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{book_title}}</title>
+<meta name="description" content="{{book_description_plain}}">
+<style>{{inline_css}}</style>
+<script>
+/* 必要な機能がそろうときだけ「1章ずつ表示」に切り替える。足りなければ全章を縦に並べたまま読む。 */
+(function (d, w) {
+  var e = d.documentElement;
+  if (e.classList && d.querySelector && w.addEventListener && w.Element &&
+      Element.prototype.closest && "onhashchange" in w) e.classList.add("js");
+})(document, window);
+</script>
+</head>
+<body>
+<a class="skip-link" href="#main">本文へスキップ</a>
+<header class="topbar">
+  <a class="menu-btn" href="#chapters" aria-controls="sidebar"><span class="menu-icon" aria-hidden="true"></span><span class="menu-text">チャプター</span></a>
+  <a class="topbar-title" href="#top">{{book_title}}</a>
+  <span class="topbar-chapter" id="topbar-chapter"></span>
+</header>
+<section class="cover" id="top" data-title="{{book_title}}" aria-label="本の表紙">
+{{cover}}
+</section>
+<div class="book-layout">
+  <aside class="book-sidebar" id="sidebar" aria-label="チャプター一覧">
+    <a class="side-book" href="#top">
+      <span class="mini-cover" aria-hidden="true"><span class="mini-cover-title">{{mini_cover_title}}</span></span>
+      <span class="side-book-title">{{book_title}}</span>
+    </a>
+    <nav>
+      <ol class="chapter-list">
+{{chapter_list}}
+      </ol>
+    </nav>
+  </aside>
+  <div class="scrim" id="scrim" aria-hidden="true"></div>
+  <main id="main" class="book-main" tabindex="-1">
+{{chapters}}
+  </main>
+  <aside class="page-toc" id="page-toc" aria-label="このチャプターの目次">
+{{page_tocs}}
+  </aside>
+</div>
+<footer class="site-footer">
+  <p>{{book_title}} ／ 最終更新 {{updated}}</p>
+{{footer_note_html}}
+</footer>
+<script>{{inline_js}}</script>
+</body>
+</html>

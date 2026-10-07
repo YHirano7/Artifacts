@@ -1,30 +1,72 @@
-/* 段階的拡張: JS が無くても全ページは通常リンクで読める。ここでは体験の上乗せだけを行う。 */
+/*
+ * 段階的拡張。HTML だけで「表紙＋全章を縦に並べた1ページ」として読める。
+ * JavaScript が動くときだけ、location.hash（#ch-<slug>・#top・#見出しID）で
+ * 章を1つずつ切り替えて表示する。fetch は使わないので file:// でも動く。
+ * 途中で例外が起きたら js クラスを外し、縦に並べた表示に戻す。
+ */
 (function () {
   "use strict";
   var doc = document;
-  var cache = {};
-  var navSeq = 0;
-  var shownPath = location.pathname;
-  var observer = null;
+  var root = doc.documentElement;
+  var body = doc.body;
+  if (!root.classList.contains("js")) return;
 
-  function isChapterUrl(url) {
-    return /\/chapters\/[^\/]+\.html$/.test(url.pathname);
+  var observer = null;
+  var current = null;      // 表示中の .cover / .chapter
+  var freshNav = false;    // リンクのクリックによる遷移か（戻る／進むではないか）
+  var restoreY = null;     // 戻る／進むで復元するスクロール位置
+  var saveTimer = 0;
+
+  function $(sel, ctx) { return (ctx || doc).querySelector(sel); }
+  function $$(sel, ctx) { return Array.prototype.slice.call((ctx || doc).querySelectorAll(sel)); }
+
+  /* ---------- スクロール位置の保存（戻る／進むで元の位置に戻すため） ---------- */
+  function saveScroll() {
+    clearTimeout(saveTimer);
+    try {
+      var st = history.state && typeof history.state === "object" ? history.state : {};
+      var next = {};
+      for (var k in st) if (Object.prototype.hasOwnProperty.call(st, k)) next[k] = st[k];
+      next.bookY = window.scrollY;
+      history.replaceState(next, "");
+    } catch (e) { /* 保存できなくても表示には影響しない */ }
+  }
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveScroll, 200);
   }
 
-  /* コードのコピー */
-  function initCopy(root) {
-    if (!navigator.clipboard) return;
-    root.querySelectorAll(".code-block").forEach(function (block) {
-      if (block.querySelector(".copy-btn")) return;
+  /* ---------- コードのコピー ---------- */
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      var ta = doc.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = doc.execCommand("copy"); } catch (e) { ok = false; }
+      body.removeChild(ta);
+      if (ok) resolve(); else reject(new Error("copy failed"));
+    });
+  }
+  function initCopy() {
+    $$(".code-block").forEach(function (block) {
       var btn = doc.createElement("button");
       btn.type = "button";
       btn.className = "copy-btn";
       btn.textContent = "コピー";
       btn.addEventListener("click", function () {
-        var code = block.querySelector("pre");
-        navigator.clipboard.writeText(code ? code.innerText : "").then(function () {
+        var code = $("pre", block);
+        copyText(code ? code.innerText : "").then(function () {
           btn.textContent = "コピーしました";
           btn.classList.add("is-done");
+        }, function () {
+          btn.textContent = "コピーできません";
+        }).then(function () {
           setTimeout(function () { btn.textContent = "コピー"; btn.classList.remove("is-done"); }, 1600);
         });
       });
@@ -32,148 +74,188 @@
     });
   }
 
-  /* 目次のハイライト */
-  function initScrollSpy() {
-    if (observer) observer.disconnect();
-    if (!("IntersectionObserver" in window)) return;
-    var links = doc.querySelectorAll("#page-toc .toc a");
+  /* ---------- 目次の現在位置 ---------- */
+  function initScrollSpy(section) {
+    if (observer) { observer.disconnect(); observer = null; }
+    if (!("IntersectionObserver" in window) || !section) return;
+    var card = $('.toc-card[data-chapter-toc="' + section.id + '"]');
+    if (!card) return;
+    var links = $$(".toc a", card);
     if (!links.length) return;
     var map = {};
     links.forEach(function (a) { map[decodeURIComponent(a.hash.slice(1))] = a; });
-    var headings = doc.querySelectorAll(".chapter-body h2[id], .chapter-body h3[id]");
     observer = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
         if (!e.isIntersecting) return;
-        links.forEach(function (a) { a.classList.remove("is-active"); });
         var a = map[e.target.id];
-        if (a) a.classList.add("is-active");
+        if (!a) return;
+        links.forEach(function (l) { l.classList.remove("is-active"); });
+        a.classList.add("is-active");
       });
     }, { rootMargin: "-64px 0px -70% 0px" });
-    headings.forEach(function (h) { observer.observe(h); });
+    $$(".chapter-body h2[id], .chapter-body h3[id]", section).forEach(function (h) { observer.observe(h); });
   }
 
-  /* 読書進捗バー */
+  /* ---------- 読書進捗バー ---------- */
+  var progress = null;
+  function updateProgress() {
+    if (!progress) return;
+    var max = root.scrollHeight - window.innerHeight;
+    progress.style.width = (max > 0 ? Math.min(100, (window.scrollY / max) * 100) : 0) + "%";
+  }
   function initProgress() {
-    var bar = doc.querySelector(".topbar");
+    var bar = $(".topbar");
     if (!bar) return;
-    var p = doc.createElement("span");
-    p.className = "progress";
-    p.setAttribute("aria-hidden", "true");
-    bar.appendChild(p);
-    function update() {
-      var max = doc.documentElement.scrollHeight - window.innerHeight;
-      p.style.width = (max > 0 ? Math.min(100, (window.scrollY / max) * 100) : 0) + "%";
-    }
-    window.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
-    update();
+    progress = doc.createElement("span");
+    progress.className = "progress";
+    progress.setAttribute("aria-hidden", "true");
+    bar.appendChild(progress);
+    window.addEventListener("resize", updateProgress);
   }
 
-  /* サイドバーの現在位置 */
-  function markCurrent(url) {
-    doc.querySelectorAll(".chapter-list a").forEach(function (a) {
-      if (a.href.split("#")[0] === url.split("#")[0]) a.setAttribute("aria-current", "page");
+  /* ---------- モバイルのチャプター一覧（ドロワー） ---------- */
+  var menuBtn = null;
+  function setDrawer(open, returnFocus) {
+    body.classList.toggle("nav-open", open);
+    if (menuBtn) menuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) {
+      var link = $('.chapter-list a[aria-current="page"]') || $(".chapter-list a");
+      if (link) link.focus({ preventScroll: true });
+    } else if (returnFocus && menuBtn) {
+      menuBtn.focus({ preventScroll: true });
+    }
+  }
+  function initDrawer() {
+    menuBtn = $(".menu-btn");
+    if (menuBtn) {
+      menuBtn.setAttribute("role", "button");
+      menuBtn.setAttribute("aria-expanded", "false");
+      menuBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        setDrawer(!body.classList.contains("nav-open"), false);
+      });
+    }
+    var scrim = $("#scrim");
+    if (scrim) scrim.addEventListener("click", function () { setDrawer(false, true); });
+  }
+
+  /* ---------- 表紙・章の切り替え ---------- */
+  function showSection(section) {
+    if (section === current) return;
+    current = section;
+    var isChapter = section.classList.contains("chapter");
+    $$(".chapter.is-current, .toc-card.is-current").forEach(function (el) { el.classList.remove("is-current"); });
+    body.classList.toggle("is-cover", !isChapter);
+    if (isChapter) {
+      section.classList.add("is-current");
+      var card = $('.toc-card[data-chapter-toc="' + section.id + '"]');
+      if (card) card.classList.add("is-current");
+    }
+    if (section.getAttribute("data-title")) doc.title = section.getAttribute("data-title");
+    var label = $("#topbar-chapter");
+    if (label) label.textContent = section.getAttribute("data-label") || "";
+    $$(".chapter-list a").forEach(function (a) {
+      if (isChapter && a.getAttribute("href") === "#" + section.id) a.setAttribute("aria-current", "page");
       else a.removeAttribute("aria-current");
     });
+    initScrollSpy(isChapter ? section : null);
   }
 
-  function fetchPage(url) {
-    if (!cache[url]) {
-      cache[url] = fetch(url, { credentials: "same-origin" }).then(function (r) {
-        if (!r.ok) throw new Error(r.status);
-        return r.text();
-      });
-      cache[url].catch(function () { delete cache[url]; });
+  function route() {
+    var fresh = freshNav, y = restoreY;
+    freshNav = false;
+    restoreY = null;
+    var id = "";
+    try { id = decodeURIComponent(location.hash.slice(1)); } catch (e) { id = location.hash.slice(1); }
+    var el = id ? doc.getElementById(id) : null;
+    var section = el ? el.closest(".cover, .chapter") : null;
+    if (el && !section) {
+      /* #main など、章でも表紙でもない場所。表紙表示中なら1章目を出す */
+      if (!current || current.classList.contains("cover")) showSection($(".chapter") || $(".cover"));
+      if (el.focus) el.focus({ preventScroll: true });
+      return;
     }
-    return cache[url];
+    if (!section) section = $(".cover");
+    var changed = section !== current;
+    showSection(section);
+    if (body.classList.contains("nav-open")) setDrawer(false, false);
+
+    if (!fresh && typeof y === "number") {
+      window.scrollTo(0, y);
+    } else if (el && el !== section) {
+      el.scrollIntoView();
+    } else {
+      window.scrollTo(0, 0);
+    }
+    if (fresh && changed && section.classList.contains("chapter")) {
+      var main = $("#main");
+      if (main) main.focus({ preventScroll: true });
+    }
+    updateProgress();
   }
 
-  /* fetch + history API による章移動（http(s) 配信時のみ） */
-  function navigate(href, push) {
-    var url = new URL(href, location.href);
-    var seq = ++navSeq;
-    var main = doc.getElementById("main");
-    main.classList.add("is-loading");
-    return fetchPage(url.href.split("#")[0]).then(function (html) {
-      if (seq !== navSeq) return;
-      var next = new DOMParser().parseFromString(html, "text/html");
-      var newMain = next.getElementById("main");
-      var newToc = next.getElementById("page-toc");
-      if (!newMain || !newToc) throw new Error("layout");
-      main.replaceWith(newMain);
-      doc.getElementById("page-toc").replaceWith(newToc);
-      doc.title = next.title;
-      shownPath = url.pathname;
-      doc.body.setAttribute("data-chapter", next.body.getAttribute("data-chapter") || "");
-      var label = next.getElementById("topbar-chapter");
-      var cur = doc.getElementById("topbar-chapter");
-      if (label && cur) cur.textContent = label.textContent;
-      if (push) history.pushState({ pjax: true }, "", url.href);
-      markCurrent(url.href);
-      var toggle = doc.getElementById("nav-toggle");
-      if (toggle) toggle.checked = false;
-      var target = url.hash ? doc.getElementById(decodeURIComponent(url.hash.slice(1))) : null;
-      if (target) target.scrollIntoView();
-      else window.scrollTo(0, 0);
-      newMain.focus({ preventScroll: true });
-      initCopy(newMain);
-      initScrollSpy();
-    }).catch(function () {
-      if (seq === navSeq) location.href = url.href;
-    });
-  }
+  /* ---------- 入力 ---------- */
+  function initEvents() {
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 
-  function initPjax() {
-    if (location.protocol === "file:" || !window.fetch || !window.DOMParser || !history.pushState) return;
-    if (!doc.body.classList.contains("page-chapter")) return;
-    history.replaceState({ pjax: true }, "", location.href);
     doc.addEventListener("click", function (e) {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      var a = e.target.closest && e.target.closest("a[href]");
-      if (!a || a.target || a.hasAttribute("download")) return;
-      var url = new URL(a.href, location.href);
-      if (url.origin !== location.origin || !isChapterUrl(url)) return;
-      if (url.pathname === location.pathname) return;
-      e.preventDefault();
-      navigate(url.href, true);
-    });
-    doc.addEventListener("mouseover", function (e) {
-      var a = e.target.closest && e.target.closest(".chapter-list a, .pager a");
+      var a = e.target.closest("a[href]");
       if (!a) return;
-      var url = new URL(a.href, location.href);
-      if (url.origin === location.origin && isChapterUrl(url)) fetchPage(url.href.split("#")[0]);
-    });
-    window.addEventListener("popstate", function () {
-      if (location.pathname !== shownPath) navigate(location.href, false);
-      else {
-        navSeq++;
-        doc.getElementById("main").classList.remove("is-loading");
+      var href = a.getAttribute("href");
+      if (href.charAt(0) !== "#" || href === "#" || a.classList.contains("menu-btn")) return;
+      saveScroll();
+      freshNav = true;
+      if (href === location.hash) {
+        /* 同じハッシュでは hashchange が起きないので、自分で表示し直す */
+        e.preventDefault();
+        route();
       }
-    });
-  }
+    }, true);
 
-  /* ← → キーで章移動 */
-  function initKeys() {
+    window.addEventListener("popstate", function (e) {
+      clearTimeout(saveTimer);
+      if (!freshNav && e.state && typeof e.state.bookY === "number") restoreY = e.state.bookY;
+    });
+    window.addEventListener("hashchange", function () {
+      clearTimeout(saveTimer);
+      route();
+    });
+    window.addEventListener("scroll", function () {
+      updateProgress();
+      scheduleSave();
+    }, { passive: true });
+
     doc.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && body.classList.contains("nav-open")) { setDrawer(false, true); return; }
       if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       var t = e.target;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
       var rel = e.key === "ArrowLeft" ? "prev" : e.key === "ArrowRight" ? "next" : null;
-      if (!rel) return;
-      var link = doc.querySelector('.pager a[rel="' + rel + '"]');
+      if (!rel || !current || !current.classList.contains("chapter")) return;
+      var link = $('.pager a[rel="' + rel + '"]', current);
       if (link) { e.preventDefault(); link.click(); }
     });
   }
 
   function init() {
-    initCopy(doc);
-    if (!doc.body.classList.contains("page-chapter")) return;
-    initScrollSpy();
+    if (!$(".cover") || !$(".chapter")) throw new Error("book layout not found");
+    initCopy();
     initProgress();
-    initPjax();
-    initKeys();
+    initDrawer();
+    initEvents();
+    var st = history.state;
+    if (st && typeof st.bookY === "number") restoreY = st.bookY; /* 再読み込み時 */
+    route();
+    root.classList.add("js-ready");
   }
 
-  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", init);
-  else init();
+  try {
+    init();
+  } catch (err) {
+    /* 想定外の環境でも読めるように、縦に並べた表示へ戻す */
+    root.classList.remove("js", "js-ready");
+    body.classList.remove("is-cover", "nav-open");
+    if (window.console && console.error) console.error(err);
+  }
 })();

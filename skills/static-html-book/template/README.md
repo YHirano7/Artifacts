@@ -1,18 +1,18 @@
-# 静的HTML本（テンプレート）
+# Zenn本風の静的HTMLドキュメント（テンプレート）
 
-Markdown で書いた章を、配布できる静的HTMLの本にするための雛形です。
+Markdown で書いた章を、Zenn の本に似たレイアウトの静的HTMLにするための雛形です。
 
 ## 読む
 
-- `site/index.html` をブラウザで開くだけで読めます
-- `site/` ごと Web サーバーで配信してもよいです
-- JavaScript が無効でも、通常のリンクで全章を読めます
+- `site/index.html` をブラウザで開くだけで読めます。`site/` ごと Web サーバーで配信してもかまいません
+- `site/` に入っているのは `index.html` と `images/` だけです。フォルダごと渡せば、どこでも読めます
+- JavaScript が有効なら章を1つずつ切り替えて表示し、無効なら全章を縦に並べた1ページになります
 
 ## 書く・作り直す
 
 ```bash
 pip install -r tools/requirements.txt   # 初回のみ
-python tools/build.py                   # src/ から site/ を生成
+python tools/build.py                   # src/ から site/ を作り直す
 ```
 
 - 章は `src/chapters/` に Markdown で置き、`src/book.json` に登録します
@@ -25,7 +25,8 @@ CHROME=/path/to/chrome bash tools/render-infographics.sh infographics/ch01-book-
 ## 検査
 
 ```bash
-python tools/check.py --strict     # リンク・HTML構造・章の型を検査
+python tools/check.py --strict     # 構成・外部参照・リンク・HTML構造・章の型
+python tools/browser_check.py      # ブラウザでの自動確認（Playwright が必要）
 python tools/public_check.py       # 公開前の個人情報チェック
 ```
 
@@ -39,12 +40,12 @@ python tools/public_check.py --blocklist ~/.config/public-blocklist.txt
 
 ```text
 src/book.json      書名・表紙・章の一覧
-src/about.md       トップページの紹介文
+src/about.md       表紙の「この本について」
 src/chapters/      章の本文（Markdown）
 src/images/        図解 PNG
-src/templates/     HTML テンプレート
-src/assets/        book.css・book.js
+src/templates/     book.html・cover.html・chapter.html
+src/assets/        book.css・book.js（index.html に埋め込まれる）
 infographics/      図解の元 HTML
 tools/             ビルド・検査スクリプト
-site/              ビルド結果（配布するのはここ）
+site/              ビルド結果（index.html + images/）。配布するのはここ
 ```

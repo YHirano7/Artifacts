@@ -24,7 +24,7 @@
 </style></head><body>
 <div class="title">本ができるまで：Markdown から、どこでも読める HTML へ</div>
 <div class="rule"></div>
-<div class="lead">書き手が編集するのは src/ だけ。ビルドと検査を通した site/ をそのまま配布します</div>
+<div class="lead">書き手が編集するのは src/ だけ。ビルドと検査を通した site/（HTML 1枚＋画像）をそのまま配布します</div>
 <div class="flow">
   <div class="card box">
     <div class="head"><div class="no">WRITE</div><div class="h">src/（編集する）</div></div>
@@ -40,23 +40,23 @@
   </div>
   <svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg>
   <div class="engine">
-    <div class="card step"><div class="no">BUILD</div><div class="cmd">build.py</div><div class="s">Markdown を HTML にし、目次と章の前後リンクを作る</div></div>
+    <div class="card step"><div class="no">BUILD</div><div class="cmd">build.py</div><div class="s">表紙と全章を1枚の HTML にまとめ、CSS・JS を埋め込む</div></div>
     <svg class="down" viewBox="0 0 22 14"><path d="M0 0h22L11 14z"/></svg>
-    <div class="card step"><div class="no">CHECK</div><div class="cmd">check.py --strict</div><div class="s">リンク切れ・画像・HTML 構造・章の型</div></div>
+    <div class="card step"><div class="no">CHECK</div><div class="cmd">check.py --strict</div><div class="s">出力が HTML＋画像だけか・リンク・章の型</div></div>
     <svg class="down" viewBox="0 0 22 14"><path d="M0 0h22L11 14z"/></svg>
     <div class="card step"><div class="no">PUBLIC</div><div class="cmd">public_check.py</div><div class="s">個人情報・実在の ID・許可外の URL</div></div>
   </div>
   <svg class="arrow" viewBox="0 0 24 24"><path d="M5 10h9V5l8 7-8 7v-5H5z"/></svg>
   <div class="card box out">
     <div class="head"><div class="no">SHIP</div><div class="h">site/（配布する）</div></div>
-    <div class="f">index.html<span>トップページ</span></div>
-    <div class="f">chapters/*.html<span>各章</span></div>
+    <div class="f">index.html<span>表紙＋全章（CSS・JS 埋め込み）</span></div>
+    <div class="f">images/*.png<span>本文から参照する図だけ</span></div>
     <div class="sub">読者の環境ごとの動き</div>
-    <div class="env"><b>HTTP + JS</b><span>再読み込みなしで章を切り替え</span></div>
-    <div class="env"><b>file:// + JS</b><span>通常のリンクで章を移動</span></div>
-    <div class="env"><b>JS 無効</b><span>リンクで移動、details で開閉</span></div>
+    <div class="env"><b>JS 有効</b><span>章ごとに切り替えて表示</span></div>
+    <div class="env"><b>file:// / HTTP</b><span>どちらでも同じ動き</span></div>
+    <div class="env"><b>JS 無効</b><span>全章を縦に並べた1ページで読む</span></div>
     <div class="env"><b>スマホ幅</b><span>1列表示、メニューから章を選ぶ</span></div>
   </div>
 </div>
-<div class="band"><b>外部依存なし</b><span>CDN・外部画像・Web フォントを使わず、リンクはすべて相対パス。サーバーがなくても読めます</span></div>
+<div class="band"><b>外部依存なし</b><span>CDN・外部画像・Web フォントを使わない。出力は index.html と images/ だけで、サーバーがなくても読めます</span></div>
 </body></html>
