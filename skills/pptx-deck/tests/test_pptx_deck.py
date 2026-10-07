@@ -152,7 +152,7 @@ class TestPptxDeck(unittest.TestCase):
         deck = make_deck()
         deck["slides"] = [{
             "component": "bullets", "message": "m",
-            "notes": "n",
+            "notes": "n", "text_only_reason": "overflow test",
             "slots": {"body": ["これは非常に長い本文テキストで、"
                                "ボックスに収まらないことを確認するためのもの。"
                                ] * 60}}]

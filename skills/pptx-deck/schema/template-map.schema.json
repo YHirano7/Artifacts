@@ -6,6 +6,21 @@
   "additionalProperties": false,
   "properties": {
     "template": {"type": "string", "minLength": 1},
+    "policy": {
+      "type": "object",
+      "properties": {
+        "text_only": {"enum": ["error", "warn", "allow"]},
+        "max_message_slides": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "target": {"enum": ["powerpoint", "google_slides"]}
+      },
+      "additionalProperties": false
+    },
     "slide_size": {
       "type": "array",
       "items": {"type": "number", "exclusiveMinimum": 0},

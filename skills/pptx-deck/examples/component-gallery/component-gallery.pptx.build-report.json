@@ -5,107 +5,197 @@
     {
       "slide": 2,
       "component": "cards",
-      "variant": "header"
+      "variant": "header",
+      "forced": false
     },
     {
       "slide": 3,
       "component": "cards",
-      "variant": "outline"
+      "variant": "outline",
+      "forced": false
     },
     {
       "slide": 4,
       "component": "cards",
-      "variant": "numbered"
+      "variant": "numbered",
+      "forced": false
     },
     {
       "slide": 5,
       "component": "kpi",
-      "variant": "tiles"
+      "variant": "tiles",
+      "forced": false
     },
     {
       "slide": 6,
       "component": "kpi",
-      "variant": "band"
+      "variant": "band",
+      "forced": false
     },
     {
       "slide": 7,
       "component": "process",
-      "variant": "chevron"
+      "variant": "chevron",
+      "forced": false
     },
     {
       "slide": 8,
       "component": "process",
-      "variant": "circles"
+      "variant": "circles",
+      "forced": false
     },
     {
       "slide": 9,
       "component": "process",
-      "variant": "arrows"
+      "variant": "arrows",
+      "forced": false
     },
     {
       "slide": 10,
       "component": "comparison",
-      "variant": "before_after"
+      "variant": "before_after",
+      "forced": false
     },
     {
       "slide": 11,
       "component": "comparison",
-      "variant": "versus"
+      "variant": "versus",
+      "forced": false
     },
     {
       "slide": 12,
       "component": "matrix",
-      "variant": "matrix"
+      "variant": "matrix",
+      "forced": false
     },
     {
       "slide": 13,
       "component": "pyramid",
-      "variant": "pyramid"
+      "variant": "pyramid",
+      "forced": false
     },
     {
       "slide": 14,
       "component": "pyramid",
-      "variant": "funnel"
+      "variant": "funnel",
+      "forced": false
     },
     {
       "slide": 15,
       "component": "cycle",
-      "variant": "cycle"
+      "variant": "cycle",
+      "forced": false
     },
     {
       "slide": 16,
       "component": "layers",
-      "variant": "layers"
+      "variant": "layers",
+      "forced": false
     },
     {
       "slide": 17,
       "component": "roadmap",
-      "variant": "roadmap"
+      "variant": "roadmap",
+      "forced": false
     },
     {
       "slide": 18,
       "component": "message",
-      "variant": "banner"
+      "variant": "banner",
+      "forced": false
     },
     {
       "slide": 19,
       "component": "message",
-      "variant": "quote"
+      "variant": "quote",
+      "forced": false
     },
     {
       "slide": 20,
       "component": "checklist",
-      "variant": "checklist"
+      "variant": "checklist",
+      "forced": false
     },
     {
       "slide": 21,
       "component": "chart",
-      "variant": "side"
+      "variant": "side",
+      "forced": false
     },
     {
       "slide": 22,
       "component": "chart",
-      "variant": "full"
+      "variant": "full",
+      "forced": false
+    },
+    {
+      "slide": 23,
+      "component": "table",
+      "variant": "grid",
+      "forced": true
+    },
+    {
+      "slide": 24,
+      "component": "table",
+      "variant": "striped",
+      "forced": true
+    },
+    {
+      "slide": 25,
+      "component": "scorecard",
+      "variant": "rating",
+      "forced": false
+    },
+    {
+      "slide": 26,
+      "component": "scorecard",
+      "variant": "raci",
+      "forced": false
+    },
+    {
+      "slide": 27,
+      "component": "timeline",
+      "variant": "horizontal",
+      "forced": false
+    },
+    {
+      "slide": 28,
+      "component": "timeline",
+      "variant": "vertical",
+      "forced": false
+    },
+    {
+      "slide": 29,
+      "component": "tree",
+      "variant": "logic",
+      "forced": false
+    },
+    {
+      "slide": 30,
+      "component": "hub",
+      "variant": "hub",
+      "forced": false
+    },
+    {
+      "slide": 31,
+      "component": "hub",
+      "variant": "flow",
+      "forced": false
+    },
+    {
+      "slide": 32,
+      "component": "swimlane",
+      "variant": "swimlane",
+      "forced": false
+    },
+    {
+      "slide": 33,
+      "component": "action_plan",
+      "variant": "rows",
+      "forced": false
     }
-  ]
+  ],
+  "text_only": [],
+  "target": "powerpoint",
+  "compat": []
 }
