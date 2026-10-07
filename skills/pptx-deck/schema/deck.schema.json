@@ -40,7 +40,9 @@
             "type": "object",
             "minProperties": 1
           },
-          "notes": {"type": "string"}
+          "notes": {"type": "string"},
+          "prefer": {"enum": ["library"]},
+          "text_only_reason": {"type": "string", "minLength": 1}
         }
       }
     }

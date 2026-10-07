@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import math
+import sys
 
 import jsonschema
 from pptx.dml.color import RGBColor
@@ -43,6 +44,7 @@ class Component:
     variants: tuple
     slots_schema: dict
     draw: object
+    check: object = None
 
 
 def _luminance(color, theme_colors):
@@ -1640,7 +1642,17 @@ LIBRARY = {
 }
 
 
-def resolve_component(name, tmap):
+import components_business  # noqa: E402
+
+components_business.register(sys.modules[__name__])
+
+
+def resolve_component(name, tmap, prefer=None):
+    if prefer == "library":
+        if name in LIBRARY:
+            return "library", LIBRARY[name]
+        fail(f"component '{name}': prefer=library but the library has no "
+             f"such component (library: {sorted(LIBRARY)})")
     if name in tmap.get("components", {}):
         return "template", tmap["components"][name]
     if name in LIBRARY:
@@ -1691,6 +1703,8 @@ def validate_component(name, slots, variant, slide):
             if milestone["at"] > periods:
                 fail(f"{where}, milestones[{i}].at: must be within "
                      f"1..{periods}")
+    if component.check is not None:
+        component.check(slots, variant, where)
     if name == "chart":
         if variant == "side" and not slots.get("points"):
             fail(f"{where}, points: side variant requires 1..4 points")
@@ -1746,6 +1760,13 @@ def resolve_canvas(prs, tmap, slide):
         y = (title_ph.top + title_ph.height) / EMU_PER_IN + 0.25
         region = (x, y, w, prs.slide_height / EMU_PER_IN - y - 0.75)
     return layout, title_idx, region
+
+
+def is_text_only(source, component):
+    """True for template content components that only carry text/list."""
+    return (source == "template" and component.get("kind") == "content"
+            and all(slot.get("type") in ("text", "list")
+                    for slot in component.get("slots", {}).values()))
 
 
 def draw_component(prs, slide, name, spec, tmap, slide_i, variant,
