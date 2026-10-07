@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 TEMPLATE = ROOT / "templates" / "sample-org" / "template.pptx"
 MAP = ROOT / "templates" / "sample-org" / "template-map.json"
-DECK = ROOT / "examples" / "redmine-migration" / "deck.json"
+DECK = ROOT / "tests" / "fixtures" / "sample-deck.json"
 
 sys.path.insert(0, str(SCRIPTS))
 from build import absolute_bbox  # noqa: E402
@@ -931,8 +931,8 @@ class TestGroupsLayoutCharts(unittest.TestCase):
                             for w in data["warnings"]))
         self.assertEqual(data["errors"], [])
 
-    def test_redmine_build_report_zero_fallbacks(self):
-        out = self._path("redmine.pptx")
+    def test_sample_deck_build_report_zero_fallbacks(self):
+        out = self._path("sample-deck.pptx")
         r = run("build.py", "--deck", str(DECK), "--map", str(MAP),
                 "-o", str(out))
         self.assertEqual(r.returncode, 0, r.stderr)

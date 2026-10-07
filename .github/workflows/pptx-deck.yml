@@ -40,22 +40,22 @@ jobs:
           python scripts/make_sample_template.py -o /tmp/tpl/template.pptx
           python scripts/inventory.py /tmp/tpl/template.pptx \
             --json /tmp/tpl/inventory.json --thumbs /tmp/tpl/thumbs
-      - name: Build example deck
+      - name: Build sample deck
         working-directory: skills/pptx-deck
         run: |
           python scripts/build.py \
-            --deck examples/redmine-migration/deck.json \
+            --deck tests/fixtures/sample-deck.json \
             --map templates/sample-org/template-map.json \
-            -o /tmp/out/redmine-migration.pptx \
+            -o /tmp/out/sample-deck.pptx \
             --strict
       - name: QA + render
         working-directory: skills/pptx-deck
         run: |
-          python scripts/qa.py /tmp/out/redmine-migration.pptx \
-            --deck examples/redmine-migration/deck.json \
+          python scripts/qa.py /tmp/out/sample-deck.pptx \
+            --deck tests/fixtures/sample-deck.json \
             --map templates/sample-org/template-map.json \
             --render /tmp/out/preview --report /tmp/out/report.json \
-            --build-report /tmp/out/redmine-migration.pptx.build-report.json \
+            --build-report /tmp/out/sample-deck.pptx.build-report.json \
             --engine auto
       - name: Build component gallery
         working-directory: skills/pptx-deck
@@ -83,10 +83,10 @@ jobs:
         with:
           name: pptx-deck-artifacts
           path: |
-            /tmp/out/redmine-migration.pptx
+            /tmp/out/sample-deck.pptx
             /tmp/out/preview/*.png
             /tmp/out/report.json
-            /tmp/out/redmine-migration.pptx.build-report.json
+            /tmp/out/sample-deck.pptx.build-report.json
             /tmp/out/engine.json
             /tmp/out/component-gallery.pptx
             /tmp/out/gallery-preview/*.png
